@@ -1,4 +1,5 @@
 import os
+import shutil
 import torch
 import numpy as np
 from pathlib import Path
@@ -15,7 +16,7 @@ class LocalLogger(Logger):
     def __init__(self) -> None:
         super().__init__()
         self.experiment = None
-        os.system(f"rm -r {LOG_PATH}")
+        shutil.rmtree(LOG_PATH, ignore_errors=True)
 
     @property
     def name(self):
