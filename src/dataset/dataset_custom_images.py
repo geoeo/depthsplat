@@ -28,8 +28,10 @@ class DatasetCustomImagesCfg(DatasetCfgCommon):
     augment: bool
     train_times_per_scene: int
     test_times_per_scene: int
+    test_chunk_interval: int
     shuffle_val: bool
     skip_bad_shape: bool
+    scene_selection: str | None
     near: float
     far: float
     max_fov: float
@@ -59,6 +61,7 @@ class DatasetCustomImages(IterableDataset):
     def _collect_scene_dirs(self) -> list[Path]:
         scene_dirs: list[Path] = []
         for root in self.cfg.roots:
+            root = Path(root)  # Ensure root is a Path object
             stage_root = root / self.stage
             search_root = stage_root if stage_root.is_dir() else root
             if not search_root.is_dir():
@@ -71,7 +74,9 @@ class DatasetCustomImages(IterableDataset):
 
             for path in sorted(search_root.iterdir()):
                 if path.is_dir() and (path / self.cfg.metadata_file).is_file():
-                    scene_dirs.append(path)
+                    # Filter by scene_selection if specified
+                    if self.cfg.scene_selection is None or path.name == self.cfg.scene_selection:
+                        scene_dirs.append(path)
         return scene_dirs
 
     def _load_scene(self, scene_dir: Path) -> tuple[str, Tensor, Tensor, Tensor]:
@@ -144,15 +149,36 @@ class DatasetCustomImages(IterableDataset):
             if (get_fov(intrinsics).rad2deg() > self.cfg.max_fov).any():
                 continue
 
-            for _ in range(times_per_scene):
-                try:
-                    context_indices, target_indices = self.view_sampler.sample(
-                        scene,
-                        extrinsics,
-                        intrinsics,
-                    )
-                except ValueError:
-                    continue
+            if self.stage == "test":
+                # Systematically cover all frames: chunk frame indices into non-overlapping
+                # windows of num_context_views so every frame gets a depth prediction.
+                num_views = extrinsics.shape[0]
+                n_ctx = self.view_sampler.num_context_views
+                chunks = [
+                    list(range(i, min(i + n_ctx, num_views)))
+                    for i in range(0, num_views, n_ctx)
+                ]
+                # Pad the last chunk if it's smaller than n_ctx.
+                if len(chunks[-1]) < n_ctx:
+                    last = chunks[-1]
+                    last += [last[-1]] * (n_ctx - len(last))
+                iter_chunks = [(torch.tensor(c, dtype=torch.int64), torch.tensor(c, dtype=torch.int64)) for c in chunks]
+            else:
+                iter_chunks = None
+
+            for_range = iter_chunks if self.stage == "test" else range(times_per_scene)
+            for item in for_range:
+                if self.stage == "test":
+                    context_indices, target_indices = item
+                else:
+                    try:
+                        context_indices, target_indices = self.view_sampler.sample(
+                            scene,
+                            extrinsics,
+                            intrinsics,
+                        )
+                    except ValueError:
+                        continue
 
                 context_images = images[context_indices]
                 target_images = images[target_indices]
@@ -192,9 +218,14 @@ class DatasetCustomImages(IterableDataset):
                     yield apply_crop_shim(example, tuple(self.cfg.image_shape))
 
     def __len__(self) -> int:
-        times_per_scene = (
-            self.cfg.test_times_per_scene
-            if self.stage == "test"
-            else self.cfg.train_times_per_scene
-        )
-        return len(self.scene_dirs) * times_per_scene
+        if self.stage == "test":
+            # Count non-overlapping context chunks across all scenes.
+            import math
+            total = 0
+            n_ctx = self.view_sampler.num_context_views
+            for scene_dir in self.scene_dirs:
+                with (scene_dir / self.cfg.metadata_file).open("r") as f:
+                    num_views = len(json.load(f)["frames"])
+                total += math.ceil(num_views / n_ctx)
+            return total
+        return len(self.scene_dirs) * self.cfg.train_times_per_scene

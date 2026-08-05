@@ -4,9 +4,13 @@ defaults:
 name: custom_images
 roots: [datasets/custom_images]
 
-image_shape: [352, 640]
+image_shape: [480, 640]
 background_color: [0.0, 0.0, 0.0]
 cameras_are_circular: false
+
+# Set this to select a specific scene (e.g., "realm_1" or "realm_2")
+# Leave as null to use all scenes
+scene_selection: realm_1
 
 overfit_to_scene: null
 
@@ -28,7 +32,9 @@ overfit_to_scene: null
 #   ]
 # }
 # intrinsics_are_normalized=false means fx, fy, cx, cy are in pixel units.
-# extrinsics_are_c2w=true means extrinsics are OpenCV-style camera-to-world.
+# extrinsics_are_c2w=true means extrinsics are OpenCV-style camera-to-world (C2W).
+# All poses in the dataloader batches are C2W; if extrinsics_are_c2w=false, the
+# loader inverts them (W2C -> C2W) before adding them to the batch.
 metadata_file: cameras.json
 intrinsics_are_normalized: false
 extrinsics_are_c2w: true
@@ -36,6 +42,7 @@ extrinsics_are_c2w: true
 augment: false
 train_times_per_scene: 1
 test_times_per_scene: 1
+test_chunk_interval: 1
 shuffle_val: false
 skip_bad_shape: true
 

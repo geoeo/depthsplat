@@ -405,7 +405,6 @@ class ModelWrapper(LightningModule):
 
         if not self.train_cfg.forward_depth_only:
             with self.benchmarker.time("decoder", num_calls=v):
-
                 camera_poses = batch["target"]["extrinsics"]
 
                 if self.test_cfg.stablize_camera:
@@ -474,56 +473,57 @@ class ModelWrapper(LightningModule):
         path = Path(get_cfg()["output_dir"])
 
         # save depth
-        if self.test_cfg.save_depth:
-            if self.train_cfg.forward_depth_only:
-                depth = pred_depths[0].cpu().detach()  # [V, H, W]
-            else:
-                depth = (
-                    visualization_dump["depth"][0, :, :, :, 0, 0].cpu().detach()
-                )  # [V, H, W]
+        with self.benchmarker.time("save"):
+            if self.test_cfg.save_depth:
+                if self.train_cfg.forward_depth_only:
+                    depth = pred_depths[0].cpu().detach()  # [V, H, W]
+                else:
+                    depth = (
+                        visualization_dump["depth"][0, :, :, :, 0, 0].cpu().detach()
+                    )  # [V, H, W]
 
-            index = batch["context"]["index"][0]
-
-            if self.test_cfg.save_depth_concat_img:
-                # concat (img0, img1, depth0, depth1)
-                image = batch['context']['image'][0]  # [V, 3, H, W] in [0,1]
-                image = rearrange(image, "b c h w -> h (b w) c")  # [H, VW, 3]
-                image_concat = (image.detach().cpu().numpy() * 255).astype(np.uint8)  # [H, VW, 3]
-
-                depth_concat = []
-
-            for idx, depth_i in zip(index, depth):
-                depth_viz = viz_depth_tensor(
-                    1.0 / depth_i, return_numpy=True
-                )  # [H, W, 3]
+                index = batch["context"]["index"][0]
 
                 if self.test_cfg.save_depth_concat_img:
-                    depth_concat.append(depth_viz)
+                    # concat (img0, img1, depth0, depth1)
+                    image = batch['context']['image'][0]  # [V, 3, H, W] in [0,1]
+                    image = rearrange(image, "b c h w -> h (b w) c")  # [H, VW, 3]
+                    image_concat = (image.detach().cpu().numpy() * 255).astype(np.uint8)  # [H, VW, 3]
 
-                save_path = path / "images" / scene / "depth" / f"{idx:0>6}.png"
-                save_dir = os.path.dirname(save_path)
-                os.makedirs(save_dir, exist_ok=True)
-                Image.fromarray(depth_viz).save(save_path)
+                    depth_concat = []
 
-                # save depth as npy
-                if self.test_cfg.save_depth_npy:
-                    depth_npy = depth_i.detach().cpu().numpy()
-                    save_path = path / "images" / scene / "depth" / f"{idx:0>6}.npy"
+                for idx, depth_i in zip(index, depth):
+                    depth_viz = viz_depth_tensor(
+                        1.0 / depth_i, return_numpy=True
+                    )  # [H, W, 3]
+
+                    if self.test_cfg.save_depth_concat_img:
+                        depth_concat.append(depth_viz)
+
+                    save_path = path / "images" / scene / "depth" / f"{idx:0>6}.png"
                     save_dir = os.path.dirname(save_path)
                     os.makedirs(save_dir, exist_ok=True)
-                    np.save(save_path, depth_npy)
+                    Image.fromarray(depth_viz).save(save_path)
 
-            if self.test_cfg.save_depth_concat_img:
-                depth_concat = np.concatenate(depth_concat, axis=1)  # [H, VW, 3]
-                concat = np.concatenate((image_concat, depth_concat), axis=0)  # [2H, VW, 3]
+                    # save depth as npy
+                    if self.test_cfg.save_depth_npy:
+                        depth_npy = depth_i.detach().cpu().numpy()
+                        save_path = path / "images" / scene / "depth" / f"{idx:0>6}.npy"
+                        save_dir = os.path.dirname(save_path)
+                        os.makedirs(save_dir, exist_ok=True)
+                        np.save(save_path, depth_npy)
 
-                save_path = path / "images" / scene / "depth" /  f"img_depth_{scene}.png"
-                save_dir = os.path.dirname(save_path)
-                os.makedirs(save_dir, exist_ok=True)
-                Image.fromarray(concat).save(save_path)
+                if self.test_cfg.save_depth_concat_img:
+                    depth_concat = np.concatenate(depth_concat, axis=1)  # [H, VW, 3]
+                    concat = np.concatenate((image_concat, depth_concat), axis=0)  # [2H, VW, 3]
 
-            if self.train_cfg.forward_depth_only:
-                return
+                    save_path = path / "images" / scene / "depth" /  f"img_depth_{scene}.png"
+                    save_dir = os.path.dirname(save_path)
+                    os.makedirs(save_dir, exist_ok=True)
+                    Image.fromarray(concat).save(save_path)
+
+                if self.train_cfg.forward_depth_only:
+                    return
 
         images_prob = output.color[0]
         rgb_gt = batch["target"]["image"][0]
