@@ -1,0 +1,14 @@
+{
+  "features": {
+    "ghcr.io/AIT-Assistive-Autonomous-Systems/devcontainer_features/add-groups:0.1": {
+      "version": "0.1.1",
+      "resolved": "ghcr.io/ait-assistive-autonomous-systems/devcontainer_features/add-groups@sha256:39e7f3d05bb20312a190d43734c840d557eade674ddcccf68980c51291d9ba82",
+      "integrity": "sha256:39e7f3d05bb20312a190d43734c840d557eade674ddcccf68980c51291d9ba82"
+    },
+    "ghcr.io/devcontainers/features/common-utils": {
+      "version": "2.5.9",
+      "resolved": "ghcr.io/devcontainers/features/common-utils@sha256:cb0c4d3c276f157eed17935747e364178d75fee17f55c4e129966f64633deb3a",
+      "integrity": "sha256:cb0c4d3c276f157eed17935747e364178d75fee17f55c4e129966f64633deb3a"
+    }
+  }
+}

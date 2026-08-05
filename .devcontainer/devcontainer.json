@@ -1,0 +1,44 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
+// https://github.com/microsoft/vscode-dev-containers/tree/v0.166.1/containers/cpp
+{
+	"name": "Container for WAFT",
+	"workspaceFolder": "/workspaces",
+	"service": "ws_depthsplat",
+	"dockerComposeFile": [
+		"compose.yaml"
+  ],
+	"remoteUser": "ubuntu",
+	"capAdd": [
+		"SYS_PTRACE"
+	  ],
+	"securityOpt": [
+		"seccomp=unconfined"
+	  ],
+	"overrideCommand": true,
+	// We need this to sync groups from the host to the container
+	// This is required for the host to access container ros topics / shared memory
+	"features": {
+		"ghcr.io/devcontainers/features/common-utils": {
+		  "upgradePackages": false
+		},
+		"ghcr.io/AIT-Assistive-Autonomous-Systems/devcontainer_features/add-groups:0.1": {
+			"addGroups": "file:///host_groups",
+			"runAt": "build"
+		}
+	},
+	"initializeCommand": "xhost +local:docker && .devcontainer/initialize.bash",
+	"postCreateCommand": ".devcontainer/post-create-command.sh",
+	"mounts": [
+		"source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind"
+	],
+	
+	"remoteEnv": {
+		"DISPLAY": "${localEnv:DISPLAY}",
+		"WAYLAND_DISPLAY": "${localEnv:WAYLAND_DISPLAY}",
+		"XDG_RUNTIME_DIR": "${localEnv:XDG_RUNTIME_DIR}",
+		"PULSE_SERVER": "${localEnv:PULSE_SERVER}",
+		"HISTFILE": "/workspaces/.shell_history",
+		"NVIDIA_VISIBLE_DEVICES": "all",
+		"NVIDIA_DRIVER_CAPABILITIES": "all"
+	}
+}

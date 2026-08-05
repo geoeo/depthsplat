@@ -1,0 +1,16 @@
+services:
+  ws_depthsplat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # END docker
+    volumes:
+    # mount all devs for usb
+      - type: bind
+        source: ..
+        target: /workspaces
+    privileged: true
+    network_mode: host
+    ipc: host
+    pid: host
+    runtime: nvidia
