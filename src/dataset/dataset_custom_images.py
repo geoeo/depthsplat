@@ -90,9 +90,12 @@ class DatasetCustomImages(IterableDataset):
         images = []
         intrinsics = []
         extrinsics = []
+        cfg_h, cfg_w = self.cfg.image_shape
         for frame in frames:
             image_path = scene_dir / frame["image"]
             image = Image.open(image_path).convert("RGB")
+            if image.size != (cfg_w, cfg_h):  # PIL size is (W, H)
+                image = image.resize((cfg_w, cfg_h), Image.BILINEAR)
             images.append(self.to_tensor(image))
 
             k = torch.tensor(frame["intrinsics"], dtype=torch.float32)

@@ -7,6 +7,10 @@ REALM_DATASET=${1:-realm_1}
 
 echo "Running depth inference on custom_images dataset: $REALM_DATASET"
 
+# Read image_shape from config so the experiment override doesn't clobber it.
+IMAGE_SHAPE=$(python3 -c "import yaml; s=yaml.safe_load(open('config/dataset/custom_images.yaml'))['image_shape']; print(f'{s[0]},{s[1]}')")
+echo "Using image_shape: [$IMAGE_SHAPE]"
+
 CUDA_VISIBLE_DEVICES=0 python -m src.main \
 +experiment=re10k \
 dataset=custom_images \
@@ -15,7 +19,7 @@ dataset.scene_selection=$REALM_DATASET \
 dataset.test_chunk_interval=1 \
 dataset/view_sampler=arbitrary \
 mode=test \
-dataset.image_shape=[480,640] \
+dataset.image_shape=[$IMAGE_SHAPE] \
 dataset.view_sampler.num_context_views=2 \
 dataset.view_sampler.num_target_views=10 \
 model.encoder.num_scales=2 \
