@@ -153,19 +153,27 @@ class DatasetCustomImages(IterableDataset):
                 continue
 
             if self.stage == "test":
-                # Systematically cover all frames: chunk frame indices into non-overlapping
-                # windows of num_context_views so every frame gets a depth prediction.
-                num_views = extrinsics.shape[0]
                 n_ctx = self.view_sampler.num_context_views
-                chunks = [
-                    list(range(i, min(i + n_ctx, num_views)))
-                    for i in range(0, num_views, n_ctx)
-                ]
-                # Pad the last chunk if it's smaller than n_ctx.
-                if len(chunks[-1]) < n_ctx:
-                    last = chunks[-1]
-                    last += [last[-1]] * (n_ctx - len(last))
-                iter_chunks = [(torch.tensor(c, dtype=torch.int64), torch.tensor(c, dtype=torch.int64)) for c in chunks]
+                if n_ctx > 0:
+                    # Systematically cover all frames: chunk frame indices into non-overlapping
+                    # windows of num_context_views so every frame gets a depth prediction.
+                    num_views = extrinsics.shape[0]
+                    chunks = [
+                        list(range(i, min(i + n_ctx, num_views)))
+                        for i in range(0, num_views, n_ctx)
+                    ]
+                    # Pad the last chunk if it's smaller than n_ctx.
+                    if len(chunks[-1]) < n_ctx:
+                        last = chunks[-1]
+                        last += [last[-1]] * (n_ctx - len(last))
+                    iter_chunks = [(torch.tensor(c, dtype=torch.int64), torch.tensor(c, dtype=torch.int64)) for c in chunks]
+                else:
+                    # Evaluation sampler: one fixed context/target set per scene from the index.
+                    try:
+                        ctx_idx, tgt_idx = self.view_sampler.sample(scene, extrinsics, intrinsics)
+                    except ValueError:
+                        continue
+                    iter_chunks = [(ctx_idx, tgt_idx)]
             else:
                 iter_chunks = None
 
@@ -229,6 +237,7 @@ class DatasetCustomImages(IterableDataset):
             for scene_dir in self.scene_dirs:
                 with (scene_dir / self.cfg.metadata_file).open("r") as f:
                     num_views = len(json.load(f)["frames"])
-                total += math.ceil(num_views / n_ctx)
+                # evaluation sampler returns 0 — one fixed sample per scene from the index
+                total += math.ceil(num_views / n_ctx) if n_ctx > 0 else 1
             return total
         return len(self.scene_dirs) * self.cfg.train_times_per_scene

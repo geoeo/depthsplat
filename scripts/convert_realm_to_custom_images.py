@@ -119,13 +119,33 @@ def convert_dataset(realm_name: str, offset: int = 0, num_frames: int | None = N
         "scene": realm_name,
         "frames": frames,
     }
-    
+
     cameras_json_path = output_dir / "cameras.json"
     with open(cameras_json_path, "w") as f:
         json.dump(cameras_data, f, indent=2)
-    
+
     print(f"  ✓ Converted {len(frames)} frames")
     print(f"  ✓ Saved to {output_dir}")
+
+    return realm_name, len(frames)
+
+
+def build_eval_index(scene_frame_counts: dict[str, int], index_path: Path) -> None:
+    """Build an evaluation index JSON for the converted realm scenes.
+
+    Context: first and last frame (widest baseline). Target: all frames.
+    """
+    index = {}
+    for scene, n in scene_frame_counts.items():
+        all_indices = list(range(n))
+        context = [0, n - 1]
+        target = all_indices
+        index[scene] = {"context": context, "target": target}
+
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(index_path, "w") as f:
+        json.dump(index, f, indent=2)
+    print(f"\n✓ Evaluation index saved to {index_path}")
 
 
 if __name__ == "__main__":
@@ -134,6 +154,10 @@ if __name__ == "__main__":
     parser.add_argument("--num-frames", type=int, default=None, help="Number of frames to include after offset")
     args = parser.parse_args()
 
+    scene_frame_counts = {}
     for realm_name in ["realm_1", "realm_2"]:
-        convert_dataset(realm_name, offset=args.offset, num_frames=args.num_frames)
+        scene, n = convert_dataset(realm_name, offset=args.offset, num_frames=args.num_frames)
+        scene_frame_counts[scene] = n
+
+    build_eval_index(scene_frame_counts, Path("assets/evaluation_index_realm.json"))
     print("\nConversion complete!")
