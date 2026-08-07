@@ -13,8 +13,8 @@ from PIL import Image
 def load_intrinsics(intrinsics_path: Path) -> np.ndarray:
     """Load intrinsics from intrinsics.txt (fx fy cx cy width height)."""
     with open(intrinsics_path, "r") as f:
-        line = f.readline().strip()
-    
+        line = next(l for l in f if not l.startswith("#")).strip()
+
     values = list(map(float, line.split()))
     fx, fy, cx, cy = values[:4]
     
@@ -28,9 +28,9 @@ def load_intrinsics(intrinsics_path: Path) -> np.ndarray:
 
 def load_trajectory(traj_path: Path) -> Dict[str, np.ndarray]:
     """Load camera trajectory from kf_traj.txt.
-    
+
     Format: frame_id R11 R12 R13 tx R21 R22 R23 ty R31 R32 R33 tz
-    Assumes W2C (world-to-camera) format; returns as C2W (camera-to-world).
+    Translation column holds the UTM camera position, so this is C2W.
     """
     poses = {}
     with open(traj_path, "r") as f:
@@ -38,16 +38,13 @@ def load_trajectory(traj_path: Path) -> Dict[str, np.ndarray]:
             parts = line.strip().split()
             frame_id = parts[0]
             matrix_vals = np.array(list(map(float, parts[1:])), dtype=float)
-            
-            # Construct 3x4 W2C matrix from the 12 values
-            w2c = matrix_vals.reshape(3, 4)
-            
-            # Pad to 4x4 and invert to get C2W
-            w2c_4x4 = np.vstack([w2c, [0, 0, 0, 1]])
-            c2w_4x4 = np.linalg.inv(w2c_4x4)
-            
+
+            # Construct 4x4 C2W matrix directly (no inversion needed)
+            c2w = matrix_vals.reshape(3, 4)
+            c2w_4x4 = np.vstack([c2w, [0, 0, 0, 1]])
+
             poses[frame_id] = c2w_4x4
-    
+
     return poses
 
 
@@ -66,6 +63,17 @@ def convert_dataset(realm_name: str) -> None:
     # Load intrinsics and trajectory
     intrinsics = load_intrinsics(source_dir / "intrinsics.txt")
     poses = load_trajectory(source_dir / "kf_traj.txt")
+
+    # Express all poses relative to the first camera (makes cam0 the world origin).
+    frame_ids_sorted = sorted(poses.keys())
+    T0 = poses[frame_ids_sorted[0]]
+    R0, t0 = T0[:3, :3], T0[:3, 3]
+    # SE(3) inverse: [R^T | -R^T t]
+    T0_inv = np.eye(4)
+    T0_inv[:3, :3] = R0.T
+    T0_inv[:3, 3] = -R0.T @ t0
+    for frame_id in poses:
+        poses[frame_id] = T0_inv @ poses[frame_id]
     
     # Get sorted image files
     img_dir = source_dir / "imgs"
@@ -92,8 +100,7 @@ def convert_dataset(realm_name: str) -> None:
         shutil.copy2(img_path, output_img_path)
         
         # Get C2W pose as list of lists
-        c2w = poses[frame_id].tolist()
-        extrinsics = [c2w[i][:4] for i in range(3)]  # 3x4 matrix
+        extrinsics = poses[frame_id].tolist()  # 4x4 matrix
         
         frames.append({
             "image": output_img_name,
