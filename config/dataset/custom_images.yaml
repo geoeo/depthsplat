@@ -46,6 +46,9 @@ test_chunk_interval: 1
 shuffle_val: false
 skip_bad_shape: true
 
-near: 60.0
-far: 100.0
-max_fov: 100.0
+# Depth range (metres) for the cost volume and volume rendering near/far clipping.
+# Only depths within [near, far] are predicted; values outside are clamped.
+near: 1.0
+far: 2.0
+# Scenes with any camera FOV exceeding this (degrees) are skipped entirely.
+max_fov: 120.0

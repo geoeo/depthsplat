@@ -49,7 +49,7 @@ def load_trajectory(traj_path: Path) -> Dict[str, np.ndarray]:
     return poses
 
 
-def convert_dataset(realm_name: str, offset: int = 0, num_frames: int | None = None) -> None:
+def convert_dataset(realm_name: str, offset: int = 0, num_frames: int | None = None, scale: float = 1.0) -> None:
     """Convert a realm dataset to custom_images format."""
     source_dir = Path("/workspaces/custom") / realm_name
     output_dir = Path("/workspaces/datasets/custom_images/test") / realm_name
@@ -76,7 +76,7 @@ def convert_dataset(realm_name: str, offset: int = 0, num_frames: int | None = N
         return
 
     image_files = image_files[offset : (offset + num_frames) if num_frames is not None else None]
-    print(f"  Frames: offset={offset}, count={len(image_files)}")
+    print(f"  Frames: offset={offset}, count={len(image_files)}, scale={scale}")
 
     # Express all poses relative to the first selected frame.
     frame_ids_sorted = sorted(poses.keys())
@@ -88,6 +88,10 @@ def convert_dataset(realm_name: str, offset: int = 0, num_frames: int | None = N
     T0_inv[:3, 3] = -R0.T @ t0
     for frame_id in poses:
         poses[frame_id] = T0_inv @ poses[frame_id]
+
+    if scale != 1.0:
+        for frame_id in poses:
+            poses[frame_id][:3, 3] *= scale
 
     # Create frame list
     frames = []
@@ -152,11 +156,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--offset", type=int, default=0, help="Index of the first frame to include")
     parser.add_argument("--num-frames", type=int, default=None, help="Number of frames to include after offset")
+    parser.add_argument("--scale", type=float, default=1.0, help="Divide all translations by this factor to fit scene into near/far range")
     args = parser.parse_args()
 
     scene_frame_counts = {}
     for realm_name in ["realm_1", "realm_2"]:
-        scene, n = convert_dataset(realm_name, offset=args.offset, num_frames=args.num_frames)
+        scene, n = convert_dataset(realm_name, offset=args.offset, num_frames=args.num_frames, scale=args.scale)
         scene_frame_counts[scene] = n
 
     build_eval_index(scene_frame_counts, Path("assets/evaluation_index_realm.json"))

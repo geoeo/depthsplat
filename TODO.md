@@ -1,0 +1,2 @@
+- Check depth/translation scaling
+- Check why realm inference wont work with vitl
