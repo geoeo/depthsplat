@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Convert realm_1 and realm_2 datasets to custom_images format."""
 
+import argparse
 import json
 import shutil
 from pathlib import Path
@@ -48,7 +49,7 @@ def load_trajectory(traj_path: Path) -> Dict[str, np.ndarray]:
     return poses
 
 
-def convert_dataset(realm_name: str) -> None:
+def convert_dataset(realm_name: str, offset: int = 0, num_frames: int | None = None) -> None:
     """Convert a realm dataset to custom_images format."""
     source_dir = Path("/workspaces/custom") / realm_name
     output_dir = Path("/workspaces/datasets/custom_images/test") / realm_name
@@ -58,15 +59,28 @@ def convert_dataset(realm_name: str) -> None:
     print(f"  Output: {output_dir}")
     
     # Create output directory
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True)
     
     # Load intrinsics and trajectory
     intrinsics = load_intrinsics(source_dir / "intrinsics.txt")
     poses = load_trajectory(source_dir / "kf_traj.txt")
 
-    # Express all poses relative to the first camera (makes cam0 the world origin).
+    # Get sorted image files
+    img_dir = source_dir / "imgs"
+    image_files = sorted(img_dir.glob("*.png"))
+
+    if not image_files:
+        print(f"  WARNING: No images found in {img_dir}")
+        return
+
+    image_files = image_files[offset : (offset + num_frames) if num_frames is not None else None]
+    print(f"  Frames: offset={offset}, count={len(image_files)}")
+
+    # Express all poses relative to the first selected frame.
     frame_ids_sorted = sorted(poses.keys())
-    T0 = poses[frame_ids_sorted[0]]
+    T0 = poses[frame_ids_sorted[offset]]
     R0, t0 = T0[:3, :3], T0[:3, 3]
     # SE(3) inverse: [R^T | -R^T t]
     T0_inv = np.eye(4)
@@ -74,15 +88,7 @@ def convert_dataset(realm_name: str) -> None:
     T0_inv[:3, 3] = -R0.T @ t0
     for frame_id in poses:
         poses[frame_id] = T0_inv @ poses[frame_id]
-    
-    # Get sorted image files
-    img_dir = source_dir / "imgs"
-    image_files = sorted(img_dir.glob("*.png"))
-    
-    if not image_files:
-        print(f"  WARNING: No images found in {img_dir}")
-        return
-    
+
     # Create frame list
     frames = []
     for idx, img_path in enumerate(image_files):
@@ -123,6 +129,11 @@ def convert_dataset(realm_name: str) -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--offset", type=int, default=0, help="Index of the first frame to include")
+    parser.add_argument("--num-frames", type=int, default=None, help="Number of frames to include after offset")
+    args = parser.parse_args()
+
     for realm_name in ["realm_1", "realm_2"]:
-        convert_dataset(realm_name)
+        convert_dataset(realm_name, offset=args.offset, num_frames=args.num_frames)
     print("\nConversion complete!")
