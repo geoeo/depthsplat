@@ -122,6 +122,7 @@ def convert_dataset(realm_name: str, offset: int = 0, num_frames: int | None = N
     cameras_data = {
         "scene": realm_name,
         "scale": scale,
+        "offset": offset,
         "frames": frames,
     }
 
