@@ -15,6 +15,7 @@ VIEW_SAMPLERS: dict[str, ViewSampler[Any]] = {
     "arbitrary": ViewSamplerArbitrary,
     "bounded": ViewSamplerBounded,
     "evaluation": ViewSamplerEvaluation,
+    "realm": ViewSamplerEvaluation,
     "boundedv2": ViewSamplerBoundedV2,
 }
 

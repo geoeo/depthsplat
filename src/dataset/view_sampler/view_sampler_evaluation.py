@@ -16,9 +16,9 @@ from .view_sampler import ViewSampler
 
 @dataclass
 class ViewSamplerEvaluationCfg:
-    name: Literal["evaluation"]
+    name: Literal["evaluation", "realm"]
     index_path: Path
-    num_context_views: int
+    num_context_views: int = 0
 
 
 class ViewSamplerEvaluation(ViewSampler[ViewSamplerEvaluationCfg]):

@@ -5,7 +5,7 @@
 
 REALM_DATASET=${1:-realm_1}
 
-echo "Running depth inference on custom_images dataset: $REALM_DATASET"
+echo "Running depth inference on custom realm dataset: $REALM_DATASET"
 
 # Read image_shape from config so the experiment override doesn't clobber it.
 IMAGE_SHAPE=$(python3 -c "import yaml; s=yaml.safe_load(open('config/dataset/custom_images.yaml'))['image_shape']; print(f'{s[0]},{s[1]}')")
@@ -23,9 +23,7 @@ dataset=custom_images \
 dataset.roots=[datasets/custom_images] \
 dataset.scene_selection=$REALM_DATASET \
 dataset.test_chunk_interval=1 \
-dataset/view_sampler=evaluation \
-dataset.view_sampler.num_context_views=5 \
-dataset.view_sampler.index_path=assets/evaluation_index_realm.json \
+dataset/view_sampler=realm \
 mode=test \
 dataset.image_shape=[$IMAGE_SHAPE] \
 model.encoder.num_scales=2 \
