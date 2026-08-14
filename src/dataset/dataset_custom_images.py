@@ -223,20 +223,20 @@ class DatasetCustomImages(IterableDataset):
                 }
 
                 # Print one concrete example during inference so runtime bounds are explicit.
-                if self.stage == "test" and not self._printed_inference_bounds:
-                    context_near = example["context"]["near"]
-                    context_far = example["context"]["far"]
-                    target_near = example["target"]["near"]
-                    target_far = example["target"]["far"]
-                    print(
-                        "[DatasetCustomImages] inference example bounds "
-                        f"scene={example['scene']} "
-                        f"context_near={context_near.tolist()} "
-                        f"context_far={context_far.tolist()} "
-                        f"target_near={target_near.tolist()} "
-                        f"target_far={target_far.tolist()}"
-                    )
-                    self._printed_inference_bounds = True
+                # if self.stage == "test" and not self._printed_inference_bounds:
+                #     context_near = example["context"]["near"]
+                #     context_far = example["context"]["far"]
+                #     target_near = example["target"]["near"]
+                #     target_far = example["target"]["far"]
+                #     print(
+                #         "[DatasetCustomImages] inference example bounds "
+                #         f"scene={example['scene']} "
+                #         f"context_near={context_near.tolist()} "
+                #         f"context_far={context_far.tolist()} "
+                #         f"target_near={target_near.tolist()} "
+                #         f"target_far={target_far.tolist()}"
+                #     )
+                #     self._printed_inference_bounds = True
 
                 if self.stage == "train" and self.cfg.augment:
                     example = apply_augmentation_shim(example)
