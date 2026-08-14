@@ -48,7 +48,7 @@ skip_bad_shape: true
 
 # Depth range (metres) for the cost volume and volume rendering near/far clipping.
 # Only depths within [near, far] are predicted; values outside are clamped.
-near: 1.0
-far: 2.0
+near: 10.0
+far: 1000.0
 # Scenes with any camera FOV exceeding this (degrees) are skipped entirely.
 max_fov: 120.0

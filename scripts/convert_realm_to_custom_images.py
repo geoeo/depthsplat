@@ -91,7 +91,7 @@ def convert_dataset(realm_name: str, offset: int = 0, num_frames: int | None = N
 
     if scale != 1.0:
         for frame_id in poses:
-            poses[frame_id][:3, 3] *= scale
+            poses[frame_id][:3, 3] /= scale
 
     # Create frame list
     frames = []
@@ -121,6 +121,7 @@ def convert_dataset(realm_name: str, offset: int = 0, num_frames: int | None = N
     # Write cameras.json
     cameras_data = {
         "scene": realm_name,
+        "scale": scale,
         "frames": frames,
     }
 
@@ -134,15 +135,22 @@ def convert_dataset(realm_name: str, offset: int = 0, num_frames: int | None = N
     return realm_name, len(frames)
 
 
-def build_eval_index(scene_frame_counts: dict[str, int], index_path: Path) -> None:
+def build_eval_index(
+    scene_frame_counts: dict[str, int],
+    index_path: Path,
+    context_step_size: int,
+) -> None:
     """Build an evaluation index JSON for the converted realm scenes.
 
-    Context: first and last frame (widest baseline). Target: all frames.
+    Context: every `context_step_size`-th frame. Target: all frames.
     """
+    if context_step_size <= 0:
+        raise ValueError("context_step_size must be greater than 0")
+
     index = {}
     for scene, n in scene_frame_counts.items():
         all_indices = list(range(n))
-        context = [0, n - 1]
+        context = all_indices[::context_step_size]
         target = all_indices
         index[scene] = {"context": context, "target": target}
 
@@ -157,6 +165,7 @@ if __name__ == "__main__":
     parser.add_argument("--offset", type=int, default=0, help="Index of the first frame to include")
     parser.add_argument("--num-frames", type=int, default=None, help="Number of frames to include after offset")
     parser.add_argument("--scale", type=float, default=1.0, help="Divide all translations by this factor to fit scene into near/far range")
+    parser.add_argument("--context-step-size", type=int, default=1, help="Use every Nth frame as a context view")
     args = parser.parse_args()
 
     scene_frame_counts = {}
@@ -164,5 +173,9 @@ if __name__ == "__main__":
         scene, n = convert_dataset(realm_name, offset=args.offset, num_frames=args.num_frames, scale=args.scale)
         scene_frame_counts[scene] = n
 
-    build_eval_index(scene_frame_counts, Path("assets/evaluation_index_realm.json"))
+    build_eval_index(
+        scene_frame_counts,
+        Path("assets/evaluation_index_realm.json"),
+        args.context_step_size,
+    )
     print("\nConversion complete!")

@@ -9,7 +9,11 @@ echo "Running depth inference on custom realm dataset: $REALM_DATASET"
 
 # Read image_shape from config so the experiment override doesn't clobber it.
 IMAGE_SHAPE=$(python3 -c "import yaml; s=yaml.safe_load(open('config/dataset/custom_images.yaml'))['image_shape']; print(f'{s[0]},{s[1]}')")
+NEAR_FAR=$(python3 -c "import yaml; d=yaml.safe_load(open('config/dataset/custom_images.yaml')); print(f\"{d['near']} {d['far']}\")")
+NEAR=$(echo "$NEAR_FAR" | awk '{print $1}')
+FAR=$(echo "$NEAR_FAR" | awk '{print $2}')
 echo "Using image_shape: [$IMAGE_SHAPE]"
+echo "Using near/far: [$NEAR, $FAR]"
 
 OUTPUT_DIR=outputs/depthsplat-depth-base-$REALM_DATASET
 if [ -d "$OUTPUT_DIR" ]; then
@@ -26,6 +30,8 @@ dataset.test_chunk_interval=1 \
 dataset/view_sampler=realm \
 mode=test \
 dataset.image_shape=[$IMAGE_SHAPE] \
+dataset.near=$NEAR \
+dataset.far=$FAR \
 model.encoder.num_scales=2 \
 model.encoder.upsample_factor=4 \
 model.encoder.lowest_feature_resolution=8 \
