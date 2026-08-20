@@ -1,5 +1,5 @@
 defaults:
-  - view_sampler: arbitrary
+  - view_sampler: realm
 
 name: custom_images
 roots: [datasets/custom_images]

@@ -1,0 +1,77 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Depth Inference: realm_1",
+            "type": "debugpy",
+            "python": "/opt/conda/envs/depthsplat/bin/python",
+            "request": "launch",
+            "module": "src.main",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0"
+            },
+            "args": [
+                "+experiment=re10k",
+                "dataset=custom_images",
+                "dataset.roots=[datasets/custom_images]",
+                "dataset.scene_selection=realm_1",
+                "dataset.test_chunk_interval=1",
+                "dataset/view_sampler=realm",
+                "mode=test",
+                "dataset.image_shape=[480,640]",
+                "dataset.near=10.0",
+                "dataset.far=1000.0",
+                "model.encoder.num_scales=2",
+                "model.encoder.upsample_factor=4",
+                "model.encoder.lowest_feature_resolution=8",
+                "model.encoder.monodepth_vit_type=vitb",
+                "train.forward_depth_only=true",
+                "checkpointing.pretrained_depth=pretrained/depthsplat-depth-base-352x640-randview2-8-65a892c5.pth",
+                "test.compute_scores=false",
+                "test.save_depth=true",
+                "test.save_depth_concat_img=true",
+                "test.save_depth_npy=true",
+                "output_dir=outputs/depthsplat-depth-base-realm_1"
+            ]
+        },
+        {
+            "name": "Depth Inference: realm_2",
+            "type": "debugpy",
+            "python": "/opt/conda/envs/depthsplat/bin/python",
+            "request": "launch",
+            "module": "src.main",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0"
+            },
+            "args": [
+                "+experiment=re10k",
+                "dataset=custom_images",
+                "dataset.roots=[datasets/custom_images]",
+                "dataset.scene_selection=realm_2",
+                "dataset.test_chunk_interval=1",
+                "dataset/view_sampler=realm",
+                "mode=test",
+                "dataset.image_shape=[480,640]",
+                "dataset.near=10.0",
+                "dataset.far=1000.0",
+                "model.encoder.num_scales=2",
+                "model.encoder.upsample_factor=4",
+                "model.encoder.lowest_feature_resolution=8",
+                "model.encoder.monodepth_vit_type=vitb",
+                "train.forward_depth_only=true",
+                "checkpointing.pretrained_depth=pretrained/depthsplat-depth-base-352x640-randview2-8-65a892c5.pth",
+                "test.compute_scores=false",
+                "test.save_depth=true",
+                "test.save_depth_concat_img=true",
+                "test.save_depth_npy=true",
+                "output_dir=outputs/depthsplat-depth-base-realm_2"
+            ]
+        }
+    ]
+}
