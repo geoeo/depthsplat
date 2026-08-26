@@ -167,4 +167,5 @@ pretrained
 outputs
 output
 checkpoints
-custom
+custom/*
+!custom/.gitkeep
