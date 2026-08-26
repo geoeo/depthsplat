@@ -163,7 +163,8 @@ cython_debug/
 
 datasets/*
 !datasets/.gitkeep
-pretrained
+pretrained/*
+!pretrained/.gitkeep
 outputs
 output
 checkpoints
