@@ -7,7 +7,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-DEPTH_DIR = "outputs/depthsplat-depth-base-realm_1/images/realm_1/depth"
+DEPTH_DIR = "/workspaces/outputs/depthsplat-depth-base-realm_1-triplets/images/realm_1_off0070_t015_45-46-47/depth"
 
 
 def parse_args() -> argparse.Namespace:

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Triplet-wise depth inference on realm_1 / realm_2.
 
-Takes a flat list of image indices (length 3*N, relative to --offset), splits it into
-triplets, converts each triplet into its own custom_images scene with extrinsics
-expressed relative to the triplet's first frame, then runs DepthSplat depth inference
-in this same process.
+Takes a flat list of image indices (length 3*N, relative to --offset) or a --count of
+consecutive indices, splits it into triplets, converts each triplet into its own
+custom_images scene with extrinsics expressed relative to the triplet's first frame,
+then runs DepthSplat depth inference in this same process.
 """
 
 import argparse
@@ -102,7 +102,7 @@ def build_triplet_scene(
                 "extrinsics": c2w.tolist(),
                 "index": index,
                 "source_index": src_index,
-                "source_frame": frame_id,
+                "frame_id": frame_id,
             }
         )
 
@@ -158,16 +158,23 @@ def preprocess(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--indices", required=True, help="Flat index list relative to --offset, e.g. '[0,1,2,3,4,5]'")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--indices", help="Flat index list relative to --offset, e.g. '[0,1,2,3,4,5]'")
+    source.add_argument("--count", type=int, help="Use consecutive indices range(count); must be a multiple of 3")
     parser.add_argument("--dataset", default="realm_1", choices=["realm_1", "realm_2"])
-    parser.add_argument("--offset", type=int, default=0, help="Index of the first frame; --indices are relative to it")
+    parser.add_argument("--offset", type=int, default=0, help="Index of the first frame; indices are relative to it")
     parser.add_argument("--scale", type=float, default=1.0, help="Divide translations by this factor")
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--skip-inference", action="store_true", help="Only run pre-processing")
     args = parser.parse_args()
 
-    indices = parse_indices(args.indices)
+    if args.count is not None:
+        if args.count <= 0 or args.count % 3 != 0:
+            parser.error(f"--count must be a positive multiple of 3, got {args.count}")
+        indices = list(range(args.count))
+    else:
+        indices = parse_indices(args.indices)
     output_dir = args.output_dir or REPO_ROOT / "outputs" / f"depthsplat-depth-base-{args.dataset}-triplets"
 
     rows, warnings = preprocess(args.dataset, indices, args.data_root, args.scale, args.offset)

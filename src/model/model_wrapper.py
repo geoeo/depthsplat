@@ -483,6 +483,10 @@ class ModelWrapper(LightningModule):
                     )  # [V, H, W]
 
                 index = batch["context"]["index"][0]
+                frame_ids = batch["context"].get("frame_id")
+                if frame_ids is not None:
+                    # Collated as [view][batch]; batch size is 1 during testing.
+                    frame_ids = [f[0] for f in frame_ids]
 
                 if self.test_cfg.save_depth_concat_img:
                     # concat (img0, img1, depth0, depth1)
@@ -492,7 +496,7 @@ class ModelWrapper(LightningModule):
 
                     depth_concat = []
 
-                for idx, depth_i in zip(index, depth):
+                for view, (idx, depth_i) in enumerate(zip(index, depth)):
                     depth_viz = viz_depth_tensor(
                         1.0 / depth_i, return_numpy=True
                     )  # [H, W, 3]
@@ -504,6 +508,9 @@ class ModelWrapper(LightningModule):
                     save_dir = os.path.dirname(save_path)
                     os.makedirs(save_dir, exist_ok=True)
                     Image.fromarray(depth_viz).save(save_path)
+
+                    if frame_ids is not None:
+                        print(f"[depth] {scene} {idx:0>6} <- {frame_ids[view]}")
 
                     # save depth as npy
                     if self.test_cfg.save_depth_npy:

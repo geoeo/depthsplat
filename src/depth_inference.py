@@ -12,10 +12,8 @@ import torch
 from colorama import Fore
 from hydra import compose, initialize_config_dir
 from jaxtyping import install_import_hook
-from omegaconf import DictConfig, open_dict
+from omegaconf import DictConfig
 from pytorch_lightning import Trainer
-
-from pytorch_lightning.plugins.environments import LightningEnvironment
 
 
 # Configure beartype and jaxtyping.
@@ -87,6 +85,7 @@ def depth_inference_overrides(
         "test.save_depth_concat_img=true",
         "test.save_depth_npy=true",
         f"output_dir={output_dir}",
+        "wandb.mode=disabled",
     ]
 
 
@@ -94,9 +93,6 @@ def run_depth_inference(cfg_dict: DictConfig) -> Path:
     """Run depth-only testing in this process. Returns the output directory."""
     warnings.filterwarnings("ignore")
     torch.set_float32_matmul_precision("high")
-
-    with open_dict(cfg_dict):
-        cfg_dict.wandb.mode = "disabled"
 
     cfg = load_typed_root_config(cfg_dict)
     set_cfg(cfg_dict)
@@ -112,10 +108,8 @@ def run_depth_inference(cfg_dict: DictConfig) -> Path:
         logger=LocalLogger(),
         devices=1,
         strategy="auto",
-        callbacks=[],
         enable_progress_bar=True,
         num_sanity_val_steps=0,
-        plugins=LightningEnvironment() if cfg.use_plugins else None,
     )
     torch.manual_seed(cfg_dict.seed)
 
@@ -138,16 +132,9 @@ def run_depth_inference(cfg_dict: DictConfig) -> Path:
         global_rank=trainer.global_rank,
     )
 
-    if cfg.checkpointing.pretrained_model is not None:
-        state = torch.load(cfg.checkpointing.pretrained_model, map_location="cpu")
-        state = state.get("state_dict", state)
-        model_wrapper.load_state_dict(state, strict=not cfg.checkpointing.no_strict_load)
-        print(cyan(f"Loaded pretrained weights: {cfg.checkpointing.pretrained_model}"))
-
-    if cfg.checkpointing.pretrained_depth is not None:
-        state = torch.load(cfg.checkpointing.pretrained_depth, map_location="cpu")["model"]
-        model_wrapper.encoder.depth_predictor.load_state_dict(state, strict=True)
-        print(cyan(f"Loaded pretrained depth: {cfg.checkpointing.pretrained_depth}"))
+    state = torch.load(cfg.checkpointing.pretrained_depth, map_location="cpu")["model"]
+    model_wrapper.encoder.depth_predictor.load_state_dict(state, strict=True)
+    print(cyan(f"Loaded pretrained depth: {cfg.checkpointing.pretrained_depth}"))
 
     trainer.test(model_wrapper, datamodule=data_module, ckpt_path=None)
     return output_dir

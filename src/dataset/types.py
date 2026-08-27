@@ -20,6 +20,7 @@ class BatchedViews(TypedDict, total=False):
     near: Float[Tensor, "batch _"]  # batch view
     far: Float[Tensor, "batch _"]  # batch view
     index: Int64[Tensor, "batch _"]  # batch view
+    frame_id: list[list[str]]  # view batch; source filename/timestamp per view
 
 
 class BatchedExample(TypedDict, total=False):
@@ -35,6 +36,7 @@ class UnbatchedViews(TypedDict, total=False):
     near: Float[Tensor, " _"]
     far: Float[Tensor, " _"]
     index: Int64[Tensor, " _"]
+    frame_id: list[str]
 
 
 class UnbatchedExample(TypedDict, total=False):

@@ -81,7 +81,7 @@ class DatasetCustomImages(IterableDataset):
                         scene_dirs.append(path)
         return scene_dirs
 
-    def _load_scene(self, scene_dir: Path) -> tuple[str, Tensor, Tensor, Tensor]:
+    def _load_scene(self, scene_dir: Path) -> tuple[str, Tensor, Tensor, Tensor, list[str]]:
         metadata_path = scene_dir / self.cfg.metadata_file
         with metadata_path.open("r") as f:
             metadata = json.load(f)
@@ -92,9 +92,12 @@ class DatasetCustomImages(IterableDataset):
         images = []
         intrinsics = []
         extrinsics = []
+        frame_ids = []
         cfg_h, cfg_w = self.cfg.image_shape
         for frame in frames:
             image_path = scene_dir / frame["image"]
+            # Original capture name/timestamp, so depth outputs can be traced back to a source frame.
+            frame_ids.append(str(frame.get("frame_id", Path(frame["image"]).stem)))
             image = Image.open(image_path).convert("RGB")
             if image.size != (cfg_w, cfg_h):  # PIL size is (W, H)
                 image = image.resize((cfg_w, cfg_h), Image.BILINEAR)
@@ -118,6 +121,7 @@ class DatasetCustomImages(IterableDataset):
             torch.stack(images),
             torch.stack(extrinsics),
             torch.stack(intrinsics),
+            frame_ids,
         )
 
     def _get_bound(self, value: float, num_views: int) -> Tensor:
@@ -149,7 +153,7 @@ class DatasetCustomImages(IterableDataset):
         )
 
         for scene_dir in scene_dirs:
-            scene, images, extrinsics, intrinsics = self._load_scene(scene_dir)
+            scene, images, extrinsics, intrinsics, frame_ids = self._load_scene(scene_dir)
 
             if (get_fov(intrinsics).rad2deg() > self.cfg.max_fov).any():
                 continue
@@ -210,6 +214,7 @@ class DatasetCustomImages(IterableDataset):
                         "near": self._get_bound(self.cfg.near, len(context_indices)),
                         "far": self._get_bound(self.cfg.far, len(context_indices)),
                         "index": context_indices,
+                        "frame_id": [frame_ids[i] for i in context_indices.tolist()],
                     },
                     "target": {
                         "extrinsics": extrinsics[target_indices],
@@ -218,6 +223,7 @@ class DatasetCustomImages(IterableDataset):
                         "near": self._get_bound(self.cfg.near, len(target_indices)),
                         "far": self._get_bound(self.cfg.far, len(target_indices)),
                         "index": target_indices,
+                        "frame_id": [frame_ids[i] for i in target_indices.tolist()],
                     },
                     "scene": scene,
                 }
