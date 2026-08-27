@@ -7,7 +7,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-DEPTH_DIR = "/workspaces/outputs/depthsplat-depth-base-realm_1-triplets/images/realm_1_off0070_t015_45-46-47/depth"
+DEPTH_DIR = "/workspaces/outputs/depthsplat-depth-base-realm_1_with_depth-triplets/images/realm_1_with_depth_off0070_t009_27-28-29/depth"
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
-    npy_files = sorted(Path(DEPTH_DIR).glob("*.npy"))
+    npy_files = sorted(p for p in Path(DEPTH_DIR).glob("*.npy") if not p.stem.endswith("_gt"))
     if not npy_files:
         print(f"No .npy files found in {DEPTH_DIR}")
         return
@@ -33,27 +33,41 @@ def main():
         f"Using scale={args.scale}. Press Enter to advance, Ctrl+C to quit."
     )
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
     plt.ion()
+    colorbars = []
 
     for path in npy_files:
         depth = np.load(path) * args.scale
+        gt_path = path.with_name(f"{path.stem}_gt.npy")
+        gt = np.load(gt_path) * args.scale if gt_path.is_file() else None
 
-        ax.clear()
-        img = ax.imshow(depth, cmap="plasma")
+        for cbar in colorbars:
+            cbar.remove()
+        colorbars = []
 
-        if not hasattr(main, "_cbar"):
-            main._cbar = fig.colorbar(img, ax=ax, label="Depth (m)")
+        panels = [(axes[0], depth, path.name)]
+        if gt is not None:
+            panels.append((axes[1], gt, gt_path.name))
+            axes[1].set_visible(True)
         else:
-            main._cbar.update_normal(img)
+            axes[1].clear()
+            axes[1].set_visible(False)
 
-        ax.set_title(path.name)
-        ax.set_xlabel("x (pixels)")
-        ax.set_ylabel("y (pixels)")
+        for ax, data, title in panels:
+            ax.clear()
+            img = ax.imshow(data, cmap="plasma")
+            colorbars.append(fig.colorbar(img, ax=ax, label="Depth (m)"))
+            ax.set_title(title)
+            ax.set_xlabel("x (pixels)")
+            ax.set_ylabel("y (pixels)")
 
         fig.canvas.draw()
         plt.pause(0.01)
-        input(f"[{path.name}]  min={depth.min():.2f}m  max={depth.max():.2f}m  — press Enter for next ")
+        summary = f"[{path.name}]  min={depth.min():.2f}m  max={depth.max():.2f}m"
+        if gt is not None:
+            summary += f"  | gt min={gt.min():.2f}m  max={gt.max():.2f}m"
+        input(f"{summary} — press Enter for next ")
 
     plt.ioff()
     plt.show()

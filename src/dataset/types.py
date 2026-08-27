@@ -21,6 +21,7 @@ class BatchedViews(TypedDict, total=False):
     far: Float[Tensor, "batch _"]  # batch view
     index: Int64[Tensor, "batch _"]  # batch view
     frame_id: list[list[str]]  # view batch; source filename/timestamp per view
+    depth_gt_path: list[list[str]]  # view batch; "" when no ground truth exists
 
 
 class BatchedExample(TypedDict, total=False):
@@ -37,6 +38,7 @@ class UnbatchedViews(TypedDict, total=False):
     far: Float[Tensor, " _"]
     index: Int64[Tensor, " _"]
     frame_id: list[str]
+    depth_gt_path: list[str]
 
 
 class UnbatchedExample(TypedDict, total=False):
