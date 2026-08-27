@@ -74,6 +74,25 @@
                 "test.save_depth_npy=true",
                 "output_dir=outputs/depthsplat-depth-base-realm_2"
             ]
+        },
+        {
+            "name": "Realm Triplet Depth: realm_1",
+            "type": "debugpy",
+            "python": "/opt/conda/envs/depthsplat/bin/python",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/realm_triplet_depth.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0"
+            },
+            "args": [
+                "--dataset", "realm_1",
+                "--offset", "70",
+                "--indices", "[0,1,2,3,4,5,4,5,6]",
+                "--scale", "1.0"
+            ]
         }
     ]
 }

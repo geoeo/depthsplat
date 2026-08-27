@@ -46,6 +46,7 @@ def cyan(text: str) -> str:
     config_path="../config",
     config_name="main",
 )
+
 def train(cfg_dict: DictConfig):
     if cfg_dict["mode"] == "train" and cfg_dict["train"]["eval_model_every_n_val"] > 0:
         eval_cfg_dict = copy.deepcopy(cfg_dict)

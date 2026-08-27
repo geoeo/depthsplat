@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+"""Triplet-wise depth inference on realm_1 / realm_2.
+
+Takes a flat list of image indices (length 3*N, relative to --offset), splits it into
+triplets, converts each triplet into its own custom_images scene with extrinsics
+expressed relative to the triplet's first frame, then runs DepthSplat depth inference
+in this same process.
+"""
+
+import argparse
+import ast
+import json
+import shutil
+import sys
+from pathlib import Path
+
+import numpy as np
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+from convert_realm_to_custom_images import load_intrinsics, load_trajectory
+from src.depth_inference import compose_config, depth_inference_overrides, run_depth_inference
+
+CUSTOM_ROOT = REPO_ROOT / "custom"
+DEFAULT_DATA_ROOT = REPO_ROOT / "datasets" / "custom_images_triplets"
+DATASET_CFG_PATH = REPO_ROOT / "config" / "dataset" / "custom_images.yaml"
+
+
+def parse_indices(raw: str) -> list[int]:
+    """Accept '[0,1,2]', '0 1 2' or '0,1,2'."""
+    raw = raw.strip()
+    values = ast.literal_eval(raw) if raw.startswith("[") else [t for t in raw.replace(",", " ").split() if t]
+    indices = [int(v) for v in values]
+    if not indices or len(indices) % 3 != 0:
+        raise ValueError(f"Expected a non-empty index list with length a multiple of 3, got {len(indices)}")
+    return indices
+
+
+def se3_inverse(T: np.ndarray) -> np.ndarray:
+    R, t = T[:3, :3], T[:3, 3]
+    out = np.eye(4)
+    out[:3, :3] = R.T
+    out[:3, 3] = -R.T @ t
+    return out
+
+
+def build_triplet_scene(
+    dataset: str,
+    triplet_id: int,
+    indices: list[int],
+    data_root: Path,
+    scale: float,
+    offset: int,
+    intrinsics: np.ndarray,
+    poses: dict[str, np.ndarray],
+    image_files: list[Path],
+) -> tuple[str, list[str]]:
+    """Write one triplet as a custom_images scene. Returns (scene_name, warnings).
+
+    `indices` are relative to `offset` within the sorted image list.
+    """
+    for i in indices:
+        if not 0 <= offset + i < len(image_files):
+            raise IndexError(
+                f"Index {i} (offset {offset}) out of range for {dataset} ({len(image_files)} images)"
+            )
+
+    scene_name = f"{dataset}_off{offset:04d}_t{triplet_id:03d}_" + "-".join(str(i) for i in indices)
+    scene_dir = data_root / "test" / scene_name
+    if scene_dir.exists():
+        shutil.rmtree(scene_dir)
+    scene_dir.mkdir(parents=True)
+
+    anchor_id = image_files[offset + indices[0]].stem
+    if anchor_id not in poses:
+        raise KeyError(f"No pose for anchor frame {anchor_id} (index {indices[0]}) in {dataset}")
+    T0_inv = se3_inverse(poses[anchor_id])
+
+    warnings: list[str] = []
+    frames = []
+    for slot, index in enumerate(indices):
+        src_index = offset + index
+        img_path = image_files[src_index]
+        frame_id = img_path.stem
+        if frame_id not in poses:
+            warnings.append(f"{scene_name}: no pose for frame {frame_id} (index {index}), skipped")
+            continue
+
+        c2w = T0_inv @ poses[frame_id]
+        if scale != 1.0:
+            c2w[:3, 3] /= scale
+
+        out_name = f"{slot:03d}.png"
+        shutil.copy2(img_path, scene_dir / out_name)
+        frames.append(
+            {
+                "image": out_name,
+                "intrinsics": intrinsics.tolist(),
+                "extrinsics": c2w.tolist(),
+                "index": index,
+                "source_index": src_index,
+                "source_frame": frame_id,
+            }
+        )
+
+    # Loose tolerance: UTM translations are ~1e6, so the relative transform leaves mm-level residuals.
+    if not np.allclose(np.array(frames[0]["extrinsics"]), np.eye(4), atol=1e-4):
+        raise AssertionError(f"{scene_name}: first frame pose is not identity after relative transform")
+
+    with (scene_dir / "cameras.json").open("w") as f:
+        json.dump(
+            {
+                "scene": scene_name,
+                "dataset": dataset,
+                "scale": scale,
+                "offset": offset,
+                "indices": indices,
+                "frames": frames,
+            },
+            f,
+            indent=2,
+        )
+
+    return scene_name, warnings
+
+
+def preprocess(
+    dataset: str,
+    indices: list[int],
+    data_root: Path,
+    scale: float,
+    offset: int,
+) -> tuple[list[tuple[int, list[int], str]], list[str]]:
+    source_dir = CUSTOM_ROOT / dataset
+    intrinsics = load_intrinsics(source_dir / "intrinsics.txt")
+    poses = load_trajectory(source_dir / "kf_traj.txt")
+    image_files = sorted((source_dir / "imgs").glob("*.png"))
+
+    if (data_root / "test").exists():
+        shutil.rmtree(data_root / "test")
+
+    rows: list[tuple[int, list[int], str]] = []
+    all_warnings: list[str] = []
+    for k in range(0, len(indices), 3):
+        triplet = indices[k : k + 3]
+        scene_name, warnings = build_triplet_scene(
+            dataset, k // 3, triplet, data_root, scale, offset, intrinsics, poses, image_files
+        )
+        all_warnings.extend(warnings)
+        rows.append((k // 3, triplet, scene_name))
+        print(f"  [{k // 3:03d}] {triplet} (+{offset}) -> {scene_name}")
+
+    return rows, all_warnings
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--indices", required=True, help="Flat index list relative to --offset, e.g. '[0,1,2,3,4,5]'")
+    parser.add_argument("--dataset", default="realm_1", choices=["realm_1", "realm_2"])
+    parser.add_argument("--offset", type=int, default=0, help="Index of the first frame; --indices are relative to it")
+    parser.add_argument("--scale", type=float, default=1.0, help="Divide translations by this factor")
+    parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
+    parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--skip-inference", action="store_true", help="Only run pre-processing")
+    args = parser.parse_args()
+
+    indices = parse_indices(args.indices)
+    output_dir = args.output_dir or REPO_ROOT / "outputs" / f"depthsplat-depth-base-{args.dataset}-triplets"
+
+    rows, warnings = preprocess(args.dataset, indices, args.data_root, args.scale, args.offset)
+    for warning in warnings:
+        print(f"  WARNING: {warning}")
+
+    if args.skip_inference:
+        return 0
+
+    dataset_cfg = yaml.safe_load(DATASET_CFG_PATH.read_text())
+    cfg = compose_config(
+        depth_inference_overrides(
+            dataset_root=args.data_root.relative_to(REPO_ROOT),
+            output_dir=output_dir.relative_to(REPO_ROOT),
+            image_shape=tuple(dataset_cfg["image_shape"]),
+            near=dataset_cfg["near"],
+            far=dataset_cfg["far"],
+        )
+    )
+    run_depth_inference(cfg)
+
+    print("\ntriplet | indices | scene | output | status")
+    for k, triplet, scene_name in rows:
+        scene_out = output_dir / "images" / scene_name / "depth"
+        status = "ok" if scene_out.is_dir() else "missing"
+        print(f"{k:>7} | {triplet} | {scene_name} | {scene_out} | {status}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
