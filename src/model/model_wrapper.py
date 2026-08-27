@@ -513,6 +513,11 @@ class ModelWrapper(LightningModule):
                     os.makedirs(save_dir, exist_ok=True)
                     Image.fromarray(depth_viz).save(save_path)
 
+                    save_image(
+                        batch["context"]["image"][0][view],
+                        path / "images" / scene / "depth" / f"{idx:0>6}_cam.png",
+                    )
+
                     if frame_ids is not None:
                         gt = gt_paths[view] if gt_paths and gt_paths[view] else "none"
                         print(f"[depth] {scene} {idx:0>6} <- {frame_ids[view]} | gt: {gt}")
