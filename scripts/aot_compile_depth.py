@@ -14,15 +14,22 @@ example.
 Each build gets its own directory, because the .so is NOT self-contained: it
 loads ~108 generated Triton kernels from separate .cubin files at runtime.
 
-Those paths are ABSOLUTE and fixed at compile time -- they are NOT resolved
-relative to the .so. Copying the .so somewhere else keeps working only for as
-long as the original build directory still exists; on a machine where it does
-not, inference fails with an opaque `run_func_ ... API call failed`. Note it
-fails on the first *inference*, not on load, so a smoke test that only
-constructs the runner will pass.
+Those paths are ABSOLUTE and fixed at compile time. They can be overridden, but
+only through an argument the Python loader does not expose:
 
-So: deploy the directory to the very path it was compiled for, or compile with
---output-dir set to where it will live on the target.
+  * torch._export.aot_load(so, device) does NOT pass a cubin_dir, so from Python
+    the build needs the original compile-time directory to still exist. If it
+    does not, inference fails with an opaque `run_func_ ... API call failed` --
+    on the first *inference*, not on load, so a smoke test that merely
+    constructs the runner will pass.
+  * The C++ runner takes a cubin_dir: AOTIModelContainerRunnerCuda(so, 1,
+    device, cubin_dir). The generated loadKernel() then keeps only the filename
+    from each baked path and joins it to cubin_dir, so a relocated build works.
+    Verified: a build copied to /tmp runs with the compile-time path deleted.
+
+So for C++ deployment the directory is relocatable as long as the runtime passes
+cubin_dir. For the Python scripts here, deploy to the compiled path or compile
+with --output-dir set to where it will live.
 
 --fp32 is the load-bearing choice. It is baked into the generated kernels, and
 the runtime must be set to match (run_depth_so.py --fp32); the setting is
@@ -154,8 +161,9 @@ def audit(so_path: Path, build_dir: Path) -> None:
         print(f"  WARNING: {len(missing)} baked paths do not exist, e.g. {missing[0]}")
     if not outside and not missing:
         print(f"  all baked paths resolve inside the build dir")
-        print(f"  NOTE: paths are absolute, not relative to the .so -- this build "
-              f"only runs where {build_dir} exists")
+        print(f"  NOTE: baked paths are absolute. Python's aot_load has no cubin_dir "
+              f"argument, so from Python this build needs {build_dir} to exist; "
+              f"C++ can relocate it by passing cubin_dir to the runner.")
 
 
 if __name__ == "__main__":
