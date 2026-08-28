@@ -93,6 +93,33 @@
                 "--indices", "[0,1,2,3,4,5,4,5,6]",
                 "--scale", "1.0"
             ]
+        },
+        {
+            // Runs the AOTInductor-compiled depth model. Build the .so first with
+            //   python scripts/aot_compile_depth.py --dataset realm_1_with_depth \
+            //       --offset 70 --count 3
+            // The .so hard-codes absolute paths to its .cubin kernels, so it only
+            // runs from the directory it was compiled into.
+            "name": "Run Depth .so: realm_1_with_depth",
+            "type": "debugpy",
+            "python": "/opt/conda/envs/depthsplat/bin/python",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/run_depth_so.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0"
+            },
+            "args": [
+                "--so", "${workspaceFolder}/outputs/aoti/fp32/depth_predictor_fp32.so",
+                "--dataset", "realm_1_with_depth",
+                "--offset", "70",
+                "--count", "3",
+                "--fp32", "on",
+                "--compare-eager",
+                "--output-dir", "${workspaceFolder}/outputs/so_depths"
+            ]
         }
     ]
 }
