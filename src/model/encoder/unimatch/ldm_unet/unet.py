@@ -325,7 +325,7 @@ class AttentionBlock(nn.Module):
         use_new_attention_order=False,
         postnorm=False,
         channels_per_group=None,
-        num_frames=2,
+        num_frames=None,
         use_cross_view_self_attn=False,
     ):
         super().__init__()
@@ -532,7 +532,7 @@ class QKVAttentionLegacy(nn.Module):
     A module which performs QKV attention. Matches legacy QKVAttention + input/ouput heads shaping
     """
 
-    def __init__(self, n_heads, n_frames=2, use_cross_view_self_attn=False):
+    def __init__(self, n_heads, n_frames=None, use_cross_view_self_attn=False):
         super().__init__()
         self.n_heads = n_heads
         self.n_frames = n_frames
@@ -549,6 +549,11 @@ class QKVAttentionLegacy(nn.Module):
         # (b v) ...
         if self.use_cross_view_self_attn:
             n_views = self.n_frames if num_views is None else num_views
+            if n_views is None:
+                raise RuntimeError(
+                    "num_views is not configured; call set_num_views(module, V) "
+                    "before forward or torch.export()"
+                )
             qkv = rearrange(qkv, "(b v) n t -> b n (v t)", v=n_views)
 
         bs, width, length = qkv.shape
@@ -680,7 +685,7 @@ class UNetModel(nn.Module):
         conv_kernel_size=3,
         concat_condition=False,
         concat_conv3x3=False,
-        num_frames=2,
+        num_frames=None,
         use_cross_view_self_attn=False,
         downsample_factor=None,
     ):

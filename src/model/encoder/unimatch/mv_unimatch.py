@@ -32,9 +32,15 @@ class MultiViewUniMatch(nn.Module):
         unet_num_res_blocks=1,
         unet_attn_resolutions=[4],
         grid_sample_disable_cudnn=False,
+        num_views=None,
         **kwargs,
     ):
         super(MultiViewUniMatch, self).__init__()
+
+        # Number of input views. Static in the traced graph: QKVAttentionLegacy
+        # factorizes the batch dim by it. Set here to keep the mutation in
+        # `forward` a trace-time no-op; left None it is resolved on first forward.
+        self._configured_num_views = num_views
 
         # CNN
         self.feature_channels = feature_channels
@@ -138,7 +144,7 @@ class MultiViewUniMatch(nn.Module):
                     num_head_channels=32,
                     dims=2,
                     postnorm=False,
-                    num_frames=2,
+                    num_frames=num_views,
                     use_cross_view_self_attn=True,
                 )
             )
@@ -245,8 +251,13 @@ class MultiViewUniMatch(nn.Module):
         images = self.normalize_images(images)
         b, v, _, ori_h, ori_w = images.shape
 
-        # update the num_views in unet attention, useful for random input views
-        set_num_views(self.regressor, num_views=v)
+        # Update num_views in the unet attention, useful for random input views.
+        # Guarded so it is a no-op once configured: under torch.export `v` is a
+        # static int, so the branch is resolved at trace time and the mutation
+        # never enters the graph.
+        if self._configured_num_views != v:
+            set_num_views(self.regressor, num_views=v)
+            self._configured_num_views = v
 
         # NOTE: in this codebase, intrinsics are normalized by image width and height
         # in unimatch's codebase: https://github.com/autonomousvision/unimatch, no normalization
