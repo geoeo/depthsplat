@@ -35,7 +35,10 @@ from src.dataset.data_module import DataModule  # noqa: E402
 from src.model.encoder import get_encoder  # noqa: E402
 from src.model.encoder.unimatch.mv_unimatch import set_num_views  # noqa: E402
 
-DEFAULT_DATA_ROOT = REPO_ROOT / "datasets" / "custom_images_triplets"
+# Scenes are generated on demand from custom/<dataset>/ into this staging root,
+# exactly as scripts/realm_triplet_depth.py does. Nothing here depends on a
+# previously populated dataset directory.
+DEFAULT_STAGING_ROOT = REPO_ROOT / "datasets" / "custom_images_triplets"
 DATASET_CFG_PATH = REPO_ROOT / "config" / "dataset" / "custom_images.yaml"
 DEFAULT_ATTN_SPLITS = [2]
 
@@ -100,13 +103,41 @@ def describe_precision() -> str:
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT,
-                        help="custom_images root holding a test/<scene>/ tree "
-                             "(populate it with scripts/realm_triplet_depth.py)")
+    """Scene-selection flags, mirroring scripts/realm_triplet_depth.py."""
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--indices",
+                        help="Flat index list relative to --offset, e.g. '[0,1,2,3,4,5]'")
+    source.add_argument("--count", type=int,
+                        help="Use consecutive indices range(count); must be a multiple of 3")
+    parser.add_argument("--dataset", default="realm_1",
+                        choices=["realm_1", "realm_2", "realm_1_with_depth"])
+    parser.add_argument("--offset", type=int, default=0,
+                        help="Index of the first frame; indices are relative to it")
+    parser.add_argument("--scale", type=float, default=1.0,
+                        help="Divide translations by this factor")
+    parser.add_argument("--data-root", type=Path, default=DEFAULT_STAGING_ROOT,
+                        help="Staging root for the generated scenes (rebuilt each run)")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--num-views", type=int, default=3,
                         help="V baked into the graph. Static: the UNet attention "
                              "factorises the batch dim by it.")
+
+
+def prepare_scenes(args):
+    """Build the triplet scenes from custom/<dataset>/, as realm_triplet_depth.py does."""
+    from realm_triplet_depth import parse_indices, preprocess
+
+    if args.count is not None:
+        if args.count <= 0 or args.count % 3 != 0:
+            raise SystemExit(f"--count must be a positive multiple of 3, got {args.count}")
+        indices = list(range(args.count))
+    else:
+        indices = parse_indices(args.indices)
+
+    rows, warnings = preprocess(args.dataset, indices, args.data_root, args.scale, args.offset)
+    for warning in warnings:
+        print(f"  WARNING: {warning}")
+    return rows
 
 
 def build_config(data_root: Path):
@@ -145,31 +176,39 @@ def build_model(cfg_dict, device: str, num_views: int) -> DepthExport:
     return DepthExport(core, DEFAULT_ATTN_SPLITS).to(device).eval()
 
 
-def example_inputs(cfg_dict, device: str, num_views: int):
-    """One real batch from the dataset, as the flat positional tuple."""
+def iter_inputs(cfg_dict, device: str, num_views: int):
+    """Yield (scene_name, flat input tuple) for every staged scene."""
     cfg = load_typed_root_config(cfg_dict)
     loader = DataModule(cfg.dataset, cfg.data_loader, StepTracker(), global_rank=0).test_dataloader()
-    batch = next(iter(loader))
-    ctx = batch["context"]
-    v = ctx["image"].shape[1]
-    if v != num_views:
-        raise SystemExit(
-            f"scene has {v} views but --num-views is {num_views}; they must match, "
-            f"because V is static in the exported graph"
+    for batch in loader:
+        ctx = batch["context"]
+        v = ctx["image"].shape[1]
+        if v != num_views:
+            raise SystemExit(
+                f"scene has {v} views but --num-views is {num_views}; they must match, "
+                f"because V is static in the exported graph"
+            )
+        scene = batch["scene"][0] if isinstance(batch.get("scene"), list) else batch.get("scene")
+        yield scene, (
+            ctx["image"].to(device),
+            ctx["intrinsics"].to(device),
+            ctx["extrinsics"].to(device),
+            (1.0 / ctx["far"]).to(device),
+            (1.0 / ctx["near"]).to(device),
         )
-    inputs = (
-        ctx["image"].to(device),
-        ctx["intrinsics"].to(device),
-        ctx["extrinsics"].to(device),
-        (1.0 / ctx["far"]).to(device),
-        (1.0 / ctx["near"]).to(device),
-    )
-    print("  example inputs: " + ", ".join(str(tuple(t.shape)) for t in inputs))
+
+
+def first_inputs(cfg_dict, device: str, num_views: int):
+    """The first staged scene, used as the tracing example."""
+    scene, inputs = next(iter_inputs(cfg_dict, device, num_views))
+    print(f"  tracing example from scene {scene}")
+    print("  input shapes: " + ", ".join(str(tuple(t.shape)) for t in inputs))
     return inputs
 
 
 def build_model_and_inputs(args):
+    """Stage scenes, build the model, and return it with one example input tuple."""
+    prepare_scenes(args)
     cfg_dict = build_config(args.data_root)
     model = build_model(cfg_dict, args.device, args.num_views)
-    inputs = example_inputs(cfg_dict, args.device, args.num_views)
-    return model, inputs
+    return model, first_inputs(cfg_dict, args.device, args.num_views)

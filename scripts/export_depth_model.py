@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Export the depth predictor to a torch.export ExportedProgram.
 
-    python scripts/export_depth_model.py --output outputs/depth_predictor.pt2
+    python scripts/export_depth_model.py --dataset realm_1_with_depth \
+        --offset 70 --count 3 --output outputs/depth_predictor.pt2
+
+Scene selection matches scripts/realm_triplet_depth.py; the triplet is generated
+from custom/<dataset>/ on each run and its first scene becomes the tracing
+example.
 
 The result is a serialised graph, not a state dict -- load it with
 `torch.export.load`, never `torch.load`. It is device- and shape-specialised:

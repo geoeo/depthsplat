@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """Compile the depth predictor to a native .so with AOTInductor.
 
-    python scripts/aot_compile_depth.py --tf32 on
-    python scripts/aot_compile_depth.py --tf32 off --output-dir /opt/models/depth
+    python scripts/aot_compile_depth.py --tf32 on \
+        --dataset realm_1_with_depth --offset 70 --count 3
+    python scripts/aot_compile_depth.py --tf32 off \
+        --dataset realm_1_with_depth --offset 70 --count 3 \
+        --output-dir /opt/models/depth
+
+Scene selection matches scripts/realm_triplet_depth.py; the triplet is generated
+from custom/<dataset>/ on each run and its first scene becomes the tracing
+example.
 
 Each build gets its own directory, because the .so is NOT self-contained: it
 loads ~108 generated Triton kernels from separate .cubin files at runtime.
