@@ -362,7 +362,19 @@ class AttentionBlock(nn.Module):
         self.postnorm = postnorm
 
     def forward(self, x):
-        return checkpoint(self._forward, (x,), self.parameters(), True)   # TODO: check checkpoint usage, is True # TODO: fix the .half call!!!
+        # Honour the flag stored in __init__, as ResBlock already does: an unconditional
+        # True puts a custom autograd.Function in the graph that torch.export() cannot
+        # trace, for no benefit at inference.
+        #
+        # Memory, summed over the 6 attention blocks of one 3-view 352x640 scene
+        # (inputs (3,128,15,20) x3 and (3,64,15,20) x3; 900 cross-view tokens):
+        #   use_checkpoint=True    10 MiB activations retained,  251 MiB peak fwd+bwd
+        #   use_checkpoint=False   71 MiB activations retained,  233 MiB peak fwd+bwd
+        # Checkpointing saves ~61 MiB of retained activations, but the recompute raises
+        # peak by ~18 MiB -- a net loss at this size (both columns scale with batch).
+        # Under no_grad no graph is built, so the flag is free at inference either way:
+        # end-to-end peak was identical to the byte (4777436160) with it on and off.
+        return checkpoint(self._forward, (x,), self.parameters(), self.use_checkpoint)   # TODO: fix the .half call!!!
         #return pt_checkpoint(self._forward, x)  # pytorch
 
     def _forward(self, x):

@@ -33,6 +33,7 @@ class MultiViewUniMatch(nn.Module):
         unet_attn_resolutions=[4],
         grid_sample_disable_cudnn=False,
         num_views=None,
+        use_checkpoint=False,
         **kwargs,
     ):
         super(MultiViewUniMatch, self).__init__()
@@ -146,6 +147,7 @@ class MultiViewUniMatch(nn.Module):
                     postnorm=False,
                     num_frames=num_views,
                     use_cross_view_self_attn=True,
+                    use_checkpoint=use_checkpoint,
                 )
             )
 
