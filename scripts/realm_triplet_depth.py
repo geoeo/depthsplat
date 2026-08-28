@@ -10,6 +10,7 @@ then runs DepthSplat depth inference in this same process.
 import argparse
 import ast
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -20,6 +21,71 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+# --- xformers gating -------------------------------------------------------
+# XFORMERS_DISABLED is read at *import* time: once by
+# src/model/encoder/unimatch/ldm_unet/cross_attention.py (pulled in by the
+# src.depth_inference import below) and once by the vendored DINOv2 layers that
+# torch.hub loads during model construction. Setting it any later silently does
+# nothing and yields a false pass, so --xformers is pre-parsed here rather than
+# in main(), before the first import that reads it.
+#
+# The fallback is torch's scaled_dot_product_attention, which torch.export
+# lowers to aten::scaled_dot_product_attention; xformers' memory_efficient_
+# attention is an opaque custom op that cannot be exported.
+XFORMERS_MODES = ("auto", "on", "off")
+
+XFORMERS_GATED_MODULES = {
+    "local cross_attention": "src.model.encoder.unimatch.ldm_unet.cross_attention",
+    "dinov2 attention": "dinov2.layers.attention",
+    "dinov2 block": "dinov2.layers.block",
+}
+
+
+def resolve_xformers_mode(argv: list[str]) -> str:
+    """Pre-parse --xformers out of argv, before argparse exists."""
+    mode = "auto"
+    for i, token in enumerate(argv):
+        if token == "--xformers" and i + 1 < len(argv):
+            mode = argv[i + 1]
+        elif token.startswith("--xformers="):
+            mode = token.split("=", 1)[1]
+    if mode not in XFORMERS_MODES:
+        raise SystemExit(f"--xformers must be one of {XFORMERS_MODES}, got {mode!r}")
+    return mode
+
+
+def apply_xformers_mode(mode: str) -> None:
+    """Set the process environment. Must run before any gated module is imported."""
+    if mode == "off":
+        os.environ["XFORMERS_DISABLED"] = "1"
+    elif mode == "on":
+        os.environ.pop("XFORMERS_DISABLED", None)
+    # "auto": inherit whatever the caller exported, including nothing.
+
+
+def xformers_state() -> dict[str, bool | None]:
+    """Actual XFORMERS_AVAILABLE per gated module; None if not imported yet.
+
+    Reads sys.modules rather than importing, so calling this early does not
+    pull in DINOv2 before torch.hub has built the model.
+    """
+    return {
+        label: getattr(sys.modules[name], "XFORMERS_AVAILABLE", None) if name in sys.modules else None
+        for label, name in XFORMERS_GATED_MODULES.items()
+    }
+
+
+def print_xformers_state(when: str) -> None:
+    env = os.environ.get("XFORMERS_DISABLED")
+    print(f"  xformers [{when}]: mode={XFORMERS_MODE} XFORMERS_DISABLED={env!r}")
+    for label, available in xformers_state().items():
+        shown = "not imported" if available is None else f"XFORMERS_AVAILABLE={available}"
+        print(f"    {label:22s} {shown}")
+
+
+XFORMERS_MODE = resolve_xformers_mode(sys.argv[1:])
+apply_xformers_mode(XFORMERS_MODE)
 
 from convert_realm_to_custom_images import load_intrinsics, load_trajectory
 from src.depth_inference import compose_config, depth_inference_overrides, run_depth_inference
@@ -187,6 +253,14 @@ def main() -> int:
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--skip-inference", action="store_true", help="Only run pre-processing")
+    parser.add_argument(
+        "--xformers",
+        choices=XFORMERS_MODES,
+        default="auto",
+        help="on: force xformers; off: force the exportable SDPA fallback; "
+        "auto: inherit XFORMERS_DISABLED from the environment (default). "
+        "Applied before imports, so the value here is authoritative.",
+    )
     args = parser.parse_args()
 
     if args.count is not None:
@@ -196,6 +270,8 @@ def main() -> int:
     else:
         indices = parse_indices(args.indices)
     output_dir = args.output_dir or REPO_ROOT / "outputs" / f"depthsplat-depth-base-{args.dataset}-triplets"
+
+    print_xformers_state("startup")
 
     rows, warnings = preprocess(args.dataset, indices, args.data_root, args.scale, args.offset)
     for warning in warnings:
@@ -215,6 +291,8 @@ def main() -> int:
         )
     )
     run_depth_inference(cfg)
+
+    print_xformers_state("after inference")
 
     print("\ntriplet | indices | scene | output | status")
     for k, triplet, scene_name in rows:
