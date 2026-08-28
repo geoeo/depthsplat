@@ -366,7 +366,7 @@ class AttentionBlock(nn.Module):
         # True puts a custom autograd.Function in the graph that torch.export() cannot
         # trace, for no benefit at inference.
         #
-        # Memory, summed over the 6 attention blocks of one 3-view 352x640 scene
+        # Memory, summed over the 6 attention blocks of one 3-view 480x640 scene
         # (inputs (3,128,15,20) x3 and (3,64,15,20) x3; 900 cross-view tokens):
         #   use_checkpoint=True    10 MiB activations retained,  251 MiB peak fwd+bwd
         #   use_checkpoint=False   71 MiB activations retained,  233 MiB peak fwd+bwd

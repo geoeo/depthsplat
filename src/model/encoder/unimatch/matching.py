@@ -71,15 +71,24 @@ def warp_with_pose_depth_candidates(
         grid = torch.stack([x_grid, y_grid], dim=-1)  # [B, D, H*W, 2]
 
     # sample features
-    # ref: https://github.com/pytorch/pytorch/issues/88380
-    # print(feature1.shape, grid.shape)
-    # hardcoded workaround
-    if feature1.numel() > 1000000:
-        grid_sample_disable_cudnn = True
-    with torch.backends.cudnn.flags(enabled=not grid_sample_disable_cudnn):
+    # ref: https://github.com/pytorch/pytorch/issues/88380 -- cudnn's grid_sampler is
+    # wrong for large inputs, so it is bypassed here (unconditionally above 1e6
+    # elements, which is every call at deployment resolution).
+    #
+    # `aten.grid_sampler_2d` IS the kernel that dispatch picks once cudnn is off, so
+    # calling it directly is bit-identical to wrapping F.grid_sample in
+    # `torch.backends.cudnn.flags(enabled=False)` -- but it leaves no context manager
+    # in the traced region, which torch.export() cannot handle. The branch is on a
+    # Python bool and a static numel, so it resolves at trace time.
+    grid = grid.view(b, d * h, w, 2)
+    if grid_sample_disable_cudnn or feature1.numel() > 1000000:
+        warped_feature = torch.ops.aten.grid_sampler_2d(
+            feature1, grid, 0, 0, True  # bilinear, zeros padding, align_corners
+        ).view(b, c, d, h, w)  # [B, C, D, H, W]
+    else:
         warped_feature = F.grid_sample(
             feature1,
-            grid.view(b, d * h, w, 2),
+            grid,
             mode="bilinear",
             padding_mode="zeros",
             align_corners=True,
