@@ -1,8 +1,21 @@
 #!/usr/bin/env python3
 """Compile the depth predictor to a native .so with AOTInductor.
 
-    python scripts/aot_compile_depth.py --tf32 on   --output outputs/depth_tf32.so
-    python scripts/aot_compile_depth.py --tf32 off  --output outputs/depth_fp32.so
+    python scripts/aot_compile_depth.py --tf32 on
+    python scripts/aot_compile_depth.py --tf32 off --output-dir /opt/models/depth
+
+Each build gets its own directory, because the .so is NOT self-contained: it
+loads ~108 generated Triton kernels from separate .cubin files at runtime.
+
+Those paths are ABSOLUTE and fixed at compile time -- they are NOT resolved
+relative to the .so. Copying the .so somewhere else keeps working only for as
+long as the original build directory still exists; on a machine where it does
+not, inference fails with an opaque `run_func_ ... API call failed`. Note it
+fails on the first *inference*, not on load, so a smoke test that only
+constructs the runner will pass.
+
+So: deploy the directory to the very path it was compiled for, or compile with
+--output-dir set to where it will live on the target.
 
 --tf32 is the load-bearing choice here. It is baked into the generated kernels,
 and the runtime must be set to match (run_depth_so.py --tf32). Measured on a
@@ -21,6 +34,8 @@ Step 2 of 3. Takes a few minutes; torch 2.4 uses torch._export.aot_compile.
 """
 
 import argparse
+import re
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -40,15 +55,26 @@ def main() -> int:
     parser.add_argument("--tf32", choices=["on", "off"], required=True,
                         help="REQUIRED, no default: baked into the kernels and must "
                              "match the runtime. See the note above.")
-    parser.add_argument("--output", type=Path, default=None,
-                        help="destination .so (default: outputs/depth_predictor_<tf32>.so)")
+    parser.add_argument("--output-dir", type=Path, default=None,
+                        help="build directory, created if absent (default: "
+                             "outputs/aoti/<tf32|fp32>/). Holds the .so and its .cubin "
+                             "files; deploy it as a unit. Absolute paths to this "
+                             "directory are compiled into the .so.")
+    parser.add_argument("--clean", action="store_true",
+                        help="wipe the build directory first (stale .cubin files from "
+                             "an earlier build are otherwise left behind)")
     parser.add_argument("--skip-check", action="store_true",
                         help="skip loading the .so and comparing against eager")
     args = parser.parse_args()
 
     tf32 = args.tf32 == "on"
-    output = args.output or (common.REPO_ROOT / "outputs" /
-                             f"depth_predictor_{'tf32' if tf32 else 'fp32'}.so")
+    variant = "tf32" if tf32 else "fp32"
+    build_dir = (args.output_dir or common.REPO_ROOT / "outputs" / "aoti" / variant).resolve()
+    if args.clean and build_dir.exists():
+        shutil.rmtree(build_dir)
+        print(f"cleaned {build_dir}")
+    build_dir.mkdir(parents=True, exist_ok=True)
+    output = build_dir / f"depth_predictor_{variant}.so"
 
     common.set_tf32(tf32)
     print(f"precision: {common.describe_precision()}")
@@ -61,8 +87,7 @@ def main() -> int:
     print(f"  eager depth {tuple(reference.shape)} "
           f"range=[{reference.min():.3f}, {reference.max():.3f}] m")
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    print(f"compiling -> {output} (several minutes) ...")
+    print(f"compiling -> {build_dir}/ (several minutes) ...")
     started = time.time()
     with torch.no_grad():
         so_path = torch._export.aot_compile(
@@ -84,10 +109,47 @@ def main() -> int:
             print("  (expected under --tf32 on; rebuild with --tf32 off to compare "
                   "against eager at fp32 rounding)")
 
-    print(f"\nsaved {so_path}")
+    audit(Path(so_path), build_dir)
+
+    print(f"\nbuild directory: {build_dir}")
     print(f"run it with: python scripts/run_depth_so.py --so {so_path} "
           f"--tf32 {args.tf32}")
     return 0
+
+
+def audit(so_path: Path, build_dir: Path) -> None:
+    """Report the .so's runtime dependency on its .cubin files.
+
+    The .so calls cuModuleLoad on absolute paths fixed at compile time, so a build
+    is only portable if it stays at the path it was compiled for.
+    """
+    cubins = sorted(build_dir.glob("*.cubin"))
+    mib = lambda fs: sum(f.stat().st_size for f in fs) / 2**20
+    print(f"  {len(cubins)} .cubin kernels alongside the .so ({mib(cubins):.1f} MiB)")
+
+    # .o/.cpp are build intermediates -- the generated source is handy for the C++
+    # integration, but neither is needed at runtime.
+    leftovers = sorted(build_dir.glob("*.o")) + sorted(build_dir.glob("*.cpp"))
+    runtime = mib([so_path]) + mib(cubins)
+    print(f"  deployable: .so + .cubin = {runtime:.0f} MiB")
+    if leftovers:
+        print(f"  build intermediates (not needed at runtime): "
+              f"{len(leftovers)} files, {mib(leftovers):.0f} MiB")
+
+    refs = {Path(m.decode()) for m in
+            re.findall(rb"/[ -~]{1,240}?\.cubin", so_path.read_bytes())}
+    outside = sorted(r for r in refs if r.parent != build_dir)
+    missing = sorted(r for r in refs if not r.is_file())
+    print(f"  {len(refs)} cubin paths baked into the .so")
+    if outside:
+        print(f"  WARNING: {len(outside)} reference a directory other than the build "
+              f"dir, e.g. {outside[0]}")
+    if missing:
+        print(f"  WARNING: {len(missing)} baked paths do not exist, e.g. {missing[0]}")
+    if not outside and not missing:
+        print(f"  all baked paths resolve inside the build dir")
+        print(f"  NOTE: paths are absolute, not relative to the .so -- this build "
+              f"only runs where {build_dir} exists")
 
 
 if __name__ == "__main__":
