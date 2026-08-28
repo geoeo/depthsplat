@@ -14,6 +14,7 @@ from hydra import compose, initialize_config_dir
 from omegaconf import DictConfig
 from pytorch_lightning import Trainer
 
+from src.precision import describe_precision, set_fp32_precision
 from src.typecheck import typecheck_hook
 
 # Configure beartype and jaxtyping. Set TYPECHECK_DISABLED in the environment
@@ -87,10 +88,18 @@ def depth_inference_overrides(
     ]
 
 
-def run_depth_inference(cfg_dict: DictConfig) -> Path:
-    """Run depth-only testing in this process. Returns the output directory."""
+def run_depth_inference(cfg_dict: DictConfig, full_fp32: bool = True) -> Path:
+    """Run depth-only testing in this process. Returns the output directory.
+
+    `full_fp32` defaults to True so the depth maps written here can serve as a
+    numerical reference for an AOTInductor build, which agrees with eager to
+    ~1e-03 m in fp32 but only to ~6 m under TF32. Pass False for the older,
+    ~19% faster TF32 behaviour. See src/precision.py.
+    """
     warnings.filterwarnings("ignore")
-    torch.set_float32_matmul_precision("high")
+    set_fp32_precision(full_fp32)
+    print(cyan(f"Precision: {'full fp32' if full_fp32 else 'TF32'} "
+               f"({describe_precision()})"))
 
     cfg = load_typed_root_config(cfg_dict)
     set_cfg(cfg_dict)

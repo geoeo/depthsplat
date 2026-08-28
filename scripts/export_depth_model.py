@@ -41,15 +41,12 @@ def main() -> int:
     parser.add_argument("--strict", choices=["true", "false"], default="true",
                         help="dynamo-based tracing (true) or non-strict. Both work; "
                              "strict is the stronger check.")
-    parser.add_argument("--tf32", choices=["on", "off"], default="on",
-                        help="precision used for the numerical check below. Does not "
-                             "change the graph -- only the eager/exported comparison.")
+    common.add_precision_arg(parser)
     parser.add_argument("--skip-check", action="store_true",
                         help="skip the eager-vs-exported comparison")
     args = parser.parse_args()
 
-    common.set_tf32(args.tf32 == "on")
-    print(f"precision: {common.describe_precision()}")
+    common.apply_precision(args)
 
     print("building model ...")
     model, inputs = common.build_model_and_inputs(args)

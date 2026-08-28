@@ -18,7 +18,9 @@ os.environ["XFORMERS_DISABLED"] = "1"
 os.environ["TYPECHECK_DISABLED"] = "1"
 
 import argparse
+import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import torch
@@ -34,6 +36,7 @@ from src.misc.step_tracker import StepTracker  # noqa: E402
 from src.dataset.data_module import DataModule  # noqa: E402
 from src.model.encoder import get_encoder  # noqa: E402
 from src.model.encoder.unimatch.mv_unimatch import set_num_views  # noqa: E402
+from src.precision import describe_precision, set_fp32_precision  # noqa: E402
 
 # Scenes are generated on demand from custom/<dataset>/ into this staging root,
 # exactly as scripts/realm_triplet_depth.py does. Nothing here depends on a
@@ -78,28 +81,75 @@ class DepthExport(torch.nn.Module):
         return out["depth_preds"][-1]
 
 
+def add_precision_arg(parser: argparse.ArgumentParser) -> None:
+    """`--fp32 on|off`, defaulting to full fp32.
+
+    fp32 is the default because it is what reproduces the Python pipeline. Measured
+    against the depth maps the pipeline writes, an fp32 build lands within 1.30 m
+    (mean 0.105 m) and a TF32 build within 6.48 m (mean 0.484 m); once the Python
+    reference is also generated in fp32, the fp32 build matches it to 8.7e-04 m.
+    TF32 buys roughly 25% latency and costs that agreement.
+    """
+    parser.add_argument("--fp32", choices=["on", "off"], default="on",
+                        help="on (default): full fp32, matches the Python pipeline "
+                             "most closely. off: allow TF32, ~25%% faster but "
+                             "disagrees with Python by metres.")
+
+
+def apply_precision(args) -> bool:
+    """Apply --fp32 and report. Returns True when running in full fp32."""
+    fp32 = args.fp32 == "on"
+    set_tf32(not fp32)
+    print(f"precision: fp32={args.fp32} ({describe_precision()})")
+    return fp32
+
+
+def manifest_path(so_path: Path) -> Path:
+    return Path(so_path).parent / "build_info.json"
+
+
+def write_manifest(build_dir: Path, fp32: bool, so_name: str) -> None:
+    """Record the precision a build was compiled with, next to the .so."""
+    (build_dir / "build_info.json").write_text(json.dumps({
+        "fp32": fp32,
+        "so": so_name,
+        "torch": torch.__version__,
+        "created": datetime.now().isoformat(timespec="seconds"),
+    }, indent=2) + "\n")
+
+
+def check_manifest(so_path: Path, fp32: bool) -> None:
+    """Warn if the runtime precision disagrees with what the .so was built with.
+
+    The setting is not recorded inside the .so itself, and a mismatch fails
+    silently -- the depths are simply wrong by metres.
+    """
+    path = manifest_path(so_path)
+    if not path.is_file():
+        print(f"  no build_info.json beside the .so; cannot verify that --fp32 "
+              f"{'on' if fp32 else 'off'} matches how it was built")
+        return
+    built_fp32 = json.loads(path.read_text())["fp32"]
+    if built_fp32 == fp32:
+        print(f"  build_info.json: compiled with fp32={'on' if built_fp32 else 'off'} -- matches")
+    else:
+        print(f"  *** MISMATCH: .so was compiled with fp32="
+              f"{'on' if built_fp32 else 'off'} but running with fp32="
+              f"{'on' if fp32 else 'off'}. Depths will be wrong by metres. ***")
+
+
 def set_tf32(enabled: bool) -> None:
-    """Pin the float32 matmul path.
+    """Delegates to src.precision, so these scripts and the pipeline cannot drift.
 
     This model amplifies TF32 heavily: eager TF32 vs eager full-fp32 differs by
     ~1.30 m max / 0.105 m mean on a 3-view scene, and an AOTInductor build compiled
     under TF32 disagrees with eager by ~6.5 m max / 0.48 m mean -- not because the
     graph is wrong, but because inductor selects different kernels. Pinned to full
-    fp32 the same build agrees to 8.7e-04 m, at roughly 32% more latency.
+    fp32 the same build agrees to 8.7e-04 m, at roughly 25% more latency.
 
     Whatever is chosen at compile time must also be set by the runtime.
     """
-    torch.set_float32_matmul_precision("high" if enabled else "highest")
-    torch.backends.cuda.matmul.allow_tf32 = enabled
-    torch.backends.cudnn.allow_tf32 = enabled
-
-
-def describe_precision() -> str:
-    return (
-        f"matmul_precision={torch.get_float32_matmul_precision()} "
-        f"cuda.matmul.allow_tf32={torch.backends.cuda.matmul.allow_tf32} "
-        f"cudnn.allow_tf32={torch.backends.cudnn.allow_tf32}"
-    )
+    set_fp32_precision(full_fp32=not enabled)
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:

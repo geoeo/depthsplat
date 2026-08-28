@@ -254,6 +254,14 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--skip-inference", action="store_true", help="Only run pre-processing")
     parser.add_argument(
+        "--fp32",
+        choices=["on", "off"],
+        default="on",
+        help="on (default): full fp32, so the depth maps written here can be used as "
+        "a numerical reference for a compiled AOTInductor build. off: allow TF32, "
+        "~19%% faster but ~1.3 m different. See src/precision.py.",
+    )
+    parser.add_argument(
         "--xformers",
         choices=XFORMERS_MODES,
         default="auto",
@@ -290,7 +298,7 @@ def main() -> int:
             far=dataset_cfg["far"],
         )
     )
-    run_depth_inference(cfg)
+    run_depth_inference(cfg, full_fp32=args.fp32 == "on")
 
     print_xformers_state("after inference")
 

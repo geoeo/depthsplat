@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Compile the depth predictor to a native .so with AOTInductor.
 
-    python scripts/aot_compile_depth.py --tf32 on \
+    python scripts/aot_compile_depth.py \
         --dataset realm_1_with_depth --offset 70 --count 3
-    python scripts/aot_compile_depth.py --tf32 off \
+    python scripts/aot_compile_depth.py --fp32 off \
         --dataset realm_1_with_depth --offset 70 --count 3 \
         --output-dir /opt/models/depth
 
@@ -24,18 +24,19 @@ constructs the runner will pass.
 So: deploy the directory to the very path it was compiled for, or compile with
 --output-dir set to where it will live on the target.
 
---tf32 is the load-bearing choice here. It is baked into the generated kernels,
-and the runtime must be set to match (run_depth_so.py --tf32). Measured on a
-3-view 480x640 scene, RTX 3060:
+--fp32 is the load-bearing choice. It is baked into the generated kernels, and
+the runtime must be set to match (run_depth_so.py --fp32); the setting is
+recorded in build_info.json so a mismatch can be caught. Measured on a 3-view
+480x640 scene, RTX 3060:
 
-    --tf32 on    391 ms   differs from eager by ~6.5 m max / 0.48 m mean
-    --tf32 off   515 ms   differs from eager by ~8.7e-04 m max
+    --fp32 on  (default)  515 ms   agrees with fp32 eager to ~8.7e-04 m
+    --fp32 off (TF32)     391 ms   differs from eager by ~6.5 m max / 0.48 m mean
 
-The large TF32 gap is not a broken graph -- with TF32 pinned off the same build
-agrees with eager to fp32 rounding. Inductor simply picks different kernels than
-eager, and the cost-volume regression amplifies that into metres. Choose `off`
-if the C++ output is validated numerically against Python; `on` for the ~32%
-speedup if metre-scale disagreement is acceptable.
+The TF32 gap is not a broken graph -- pinned to fp32 the same build agrees with
+eager to fp32 rounding. Inductor simply selects different kernels than eager,
+and the cost-volume regression amplifies that into metres. fp32 is the default
+because it is what reproduces the Python pipeline; choose `off` only when the
+~25% speedup is worth metre-scale disagreement.
 
 Step 2 of 3. Takes a few minutes; torch 2.4 uses torch._export.aot_compile.
 """
@@ -59,9 +60,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     common.add_common_args(parser)
-    parser.add_argument("--tf32", choices=["on", "off"], required=True,
-                        help="REQUIRED, no default: baked into the kernels and must "
-                             "match the runtime. See the note above.")
+    common.add_precision_arg(parser)
     parser.add_argument("--output-dir", type=Path, default=None,
                         help="build directory, created if absent (default: "
                              "outputs/aoti/<tf32|fp32>/). Holds the .so and its .cubin "
@@ -74,8 +73,8 @@ def main() -> int:
                         help="skip loading the .so and comparing against eager")
     args = parser.parse_args()
 
-    tf32 = args.tf32 == "on"
-    variant = "tf32" if tf32 else "fp32"
+    fp32 = args.fp32 == "on"
+    variant = "fp32" if fp32 else "tf32"
     build_dir = (args.output_dir or common.REPO_ROOT / "outputs" / "aoti" / variant).resolve()
     if args.clean and build_dir.exists():
         shutil.rmtree(build_dir)
@@ -83,8 +82,7 @@ def main() -> int:
     build_dir.mkdir(parents=True, exist_ok=True)
     output = build_dir / f"depth_predictor_{variant}.so"
 
-    common.set_tf32(tf32)
-    print(f"precision: {common.describe_precision()}")
+    common.apply_precision(args)
 
     print("building model ...")
     model, inputs = common.build_model_and_inputs(args)
@@ -112,15 +110,16 @@ def main() -> int:
         rel = diff / reference.abs().clamp(min=1e-6)
         print(f"  .so vs eager: maxabs={diff.max():.3e} m maxrel={rel.max():.3e} "
               f"mean={diff.mean():.3e} m")
-        if tf32 and diff.max() > 1e-2:
-            print("  (expected under --tf32 on; rebuild with --tf32 off to compare "
+        if not fp32 and diff.max() > 1e-2:
+            print("  (expected under --fp32 off; rebuild with --fp32 on to compare "
                   "against eager at fp32 rounding)")
 
+    common.write_manifest(build_dir, fp32, output.name)
     audit(Path(so_path), build_dir)
 
     print(f"\nbuild directory: {build_dir}")
     print(f"run it with: python scripts/run_depth_so.py --so {so_path} "
-          f"--tf32 {args.tf32}")
+          f"--fp32 {args.fp32}")
     return 0
 
 

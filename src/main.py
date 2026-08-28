@@ -17,6 +17,7 @@ from pytorch_lightning.loggers.wandb import WandbLogger
 
 from pytorch_lightning.plugins.environments import LightningEnvironment
 
+from src.precision import set_fp32_precision
 from src.typecheck import typecheck_hook
 
 # Configure beartype and jaxtyping. Set TYPECHECK_DISABLED in the environment
@@ -264,6 +265,8 @@ def train(cfg_dict: DictConfig):
 
 if __name__ == "__main__":
     warnings.filterwarnings("ignore")
-    torch.set_float32_matmul_precision('high')
+    # Unchanged behaviour, now stated explicitly rather than implied by a torch
+    # default: training runs with TF32. See src/precision.py.
+    set_fp32_precision(full_fp32=False)
 
     train()

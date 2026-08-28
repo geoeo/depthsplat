@@ -6,15 +6,16 @@ the triplet scenes are generated from custom/<dataset>/ on each run, so this
 does not depend on a previously populated dataset directory:
 
     python scripts/run_depth_so.py --so outputs/aoti/fp32/depth_predictor_fp32.so \
-        --tf32 off --dataset realm_1_with_depth --offset 70 --count 3
+        --dataset realm_1_with_depth --offset 70 --count 3
 
-    python scripts/run_depth_so.py --so ... --tf32 off \
+    python scripts/run_depth_so.py --so ... \
         --dataset realm_1_with_depth --offset 70 --indices '[0,1,2,9,10,11]' \
         --compare-eager --benchmark
 
---tf32 must match what the .so was compiled with (aot_compile_depth.py --tf32).
-It is not recorded in the .so, so nothing will warn you if it disagrees -- the
-depths will just be quietly wrong by metres.
+--fp32 defaults to on, matching the default of aot_compile_depth.py. It must
+agree with how the .so was built: the precision is not recorded inside the .so,
+and a mismatch is silent -- the depths are simply wrong by metres. The build
+directory's build_info.json is checked at startup to catch exactly that.
 
 Step 3 of 3. This is the Python stand-in for the C++ loader: it drives the same
 .so through torch._export.aot_load.
@@ -39,8 +40,7 @@ def main() -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     common.add_common_args(parser)
     parser.add_argument("--so", type=Path, required=True, help="compiled .so to run")
-    parser.add_argument("--tf32", choices=["on", "off"], required=True,
-                        help="REQUIRED: must match the .so's compile-time setting")
+    common.add_precision_arg(parser)
     parser.add_argument("--compare-eager", action="store_true",
                         help="also build the eager model and diff against it")
     parser.add_argument("--benchmark", action="store_true", help="time the .so")
@@ -52,8 +52,8 @@ def main() -> int:
     if not args.so.is_file():
         raise SystemExit(f"no such .so: {args.so} (build it with aot_compile_depth.py)")
 
-    common.set_tf32(args.tf32 == "on")
-    print(f"precision: {common.describe_precision()}")
+    fp32 = common.apply_precision(args)
+    common.check_manifest(args.so, fp32)
 
     print(f"staging scenes from custom/{args.dataset} ...")
     rows = common.prepare_scenes(args)
@@ -111,8 +111,8 @@ def main() -> int:
     if model is not None:
         print(f"worst maxabs across scenes: {worst:.3e} m")
         if worst > 1e-2:
-            print("NOTE: a metre-scale gap usually means --tf32 disagrees with the "
-                  "build, or the .so was built with --tf32 on (see aot_compile_depth.py)")
+            print("NOTE: a metre-scale gap usually means --fp32 disagrees with the "
+                  "build, or the .so was built with --fp32 off (see aot_compile_depth.py)")
     return 0
 
 
