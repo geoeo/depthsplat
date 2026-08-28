@@ -167,3 +167,6 @@ outputs
 output
 checkpoints
 custom
+
+# Claude Code agent definitions (local only)
+.github/agents/
