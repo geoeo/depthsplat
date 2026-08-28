@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""Visualize depth .npy files one at a time with matplotlib."""
+"""Visualize depth .npy files one at a time with matplotlib.
+
+Handles both layouts this repo produces:
+
+  * the pipeline (realm_triplet_depth.py) writes one 2-D [H, W] file per view,
+    at <out>/images/<scene>/depth/000000.npy, alongside 000000_gt.npy and
+    000000_cam.png;
+  * run_depth_so.py writes one file per scene, <out>/<scene>.npy, holding the
+    whole batch as [B, V, H, W] with no ground truth or camera image.
+
+Ground truth and the camera image are shown when they are found next to the
+depth file, and simply omitted when they are not -- a scene-level file from
+run_depth_so.py renders as a single depth panel.
+"""
 
 import argparse
 from pathlib import Path
@@ -9,11 +22,18 @@ import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PIL import Image
 
-IMAGES_DIR = Path("/workspaces/outputs/depthsplat-depth-base-realm_1_with_depth-triplets/images")
+DEFAULT_DIR = Path("/workspaces/outputs/so_depths")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--input-dir",
+        type=Path,
+        default=DEFAULT_DIR,
+        help=f"directory to search recursively for depth .npy files (default: {DEFAULT_DIR})",
+    )
     parser.add_argument(
         "--scale",
         type=float,
@@ -23,70 +43,105 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def find_depth_files(root: Path) -> list[Path]:
+    """Every depth .npy under `root`, in either layout, ground truth excluded."""
+    return sorted(p for p in root.rglob("*.npy") if not p.stem.endswith("_gt"))
+
+
+def format_range(data: np.ndarray) -> str:
+    """min/max ignoring NaN, which the ground-truth maps use for holes."""
+    if not np.isfinite(data).any():
+        return "all NaN"
+    return f"min={np.nanmin(data):.2f}m  max={np.nanmax(data):.2f}m"
+
+
+def iter_frames(array: np.ndarray, label: str):
+    """Yield (title, 2-D depth) for a file that may hold one view or many.
+
+    [H, W] -> one frame; [V, H, W] and [B, V, H, W] -> one frame per view.
+    """
+    if array.ndim == 2:
+        yield label, array
+    elif array.ndim == 3:
+        for v in range(array.shape[0]):
+            yield f"{label} [v{v}]", array[v]
+    elif array.ndim == 4:
+        b_count = array.shape[0]
+        for b in range(b_count):
+            for v in range(array.shape[1]):
+                tag = f"[v{v}]" if b_count == 1 else f"[b{b} v{v}]"
+                yield f"{label} {tag}", array[b, v]
+    else:
+        print(f"  skipping {label}: unsupported shape {array.shape}")
+
+
 def main():
     args = parse_args()
-    npy_files = sorted(p for p in IMAGES_DIR.glob("*/depth/*.npy") if not p.stem.endswith("_gt"))
+    root = args.input_dir
+    if not root.is_dir():
+        print(f"No such directory: {root}")
+        return
+
+    npy_files = find_depth_files(root)
     if not npy_files:
-        print(f"No .npy files found under {IMAGES_DIR}")
+        print(f"No .npy files found under {root}")
         return
 
     print(
-        f"Found {len(npy_files)} files under {IMAGES_DIR}. "
+        f"Found {len(npy_files)} file(s) under {root}. "
         f"Using scale={args.scale}. Press Enter to advance, Ctrl+C to quit."
     )
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     fig.subplots_adjust(left=0.04, right=0.95, wspace=0.45)
     plt.ion()
-    # Fixed divider axes keep all three image axes identically proportioned; the first
-    # one is unused but reserves the same width as the colorbars.
+    # One divider axis per image axis, so panels stay identically proportioned
+    # whether or not their colorbar is shown.
     caxes = [make_axes_locatable(ax).append_axes("right", size="5%", pad=0.05) for ax in axes]
-    caxes[0].set_axis_off()
 
     for path in npy_files:
-        depth = np.load(path) * args.scale
+        array = np.load(path) * args.scale
+        # Siblings exist only in the pipeline layout; absent for scene-level files.
         gt_path = path.with_name(f"{path.stem}_gt.npy")
         gt = np.load(gt_path) * args.scale if gt_path.is_file() else None
-        scene = path.parent.parent.name
-        label = f"{scene}/{path.name}"
-
         rgb_path = path.with_name(f"{path.stem}_cam.png")
         rgb = np.asarray(Image.open(rgb_path).convert("RGB")) if rgb_path.is_file() else None
 
-        for ax in axes:
-            ax.clear()
-            ax.set_visible(False)
-        for cax in caxes[1:]:
-            cax.clear()
-            cax.set_visible(False)
+        scene = path.parent.parent.name if path.parent.name == "depth" else path.stem
+        base = f"{scene}/{path.name}" if path.parent.name == "depth" else scene
 
-        if rgb is not None:
-            axes[0].set_visible(True)
-            axes[0].imshow(rgb, aspect="equal")
-            axes[0].set_title(f"{scene}/{rgb_path.name}")
-            axes[0].set_xlabel("x (pixels)")
-            axes[0].set_ylabel("y (pixels)")
+        for title, depth in iter_frames(array, base):
+            # Left to right: camera image, depth, ground truth -- each only if present.
+            panels = []
+            if rgb is not None:
+                panels.append((rgb, f"{scene}/{rgb_path.name}", None, False))
+            panels.append((depth, title, "plasma", True))
+            if gt is not None and gt.shape == depth.shape:
+                panels.append((gt, f"{title} (gt)", "plasma", True))
 
-        panels = [(1, depth, label)]
-        if gt is not None:
-            panels.append((2, gt, f"{label} (gt)"))
+            for ax, cax in zip(axes, caxes):
+                ax.clear()
+                ax.set_visible(False)
+                cax.clear()
+                cax.set_axis_off()
 
-        for i, data, title in panels:
-            ax = axes[i]
-            ax.set_visible(True)
-            img = ax.imshow(data, cmap="plasma", aspect="equal")
-            caxes[i].set_visible(True)
-            fig.colorbar(img, cax=caxes[i], label="Depth (m)")
-            ax.set_title(title)
-            ax.set_xlabel("x (pixels)")
-            ax.set_ylabel("y (pixels)")
+            for i, (data, panel_title, cmap, show_bar) in enumerate(panels):
+                ax = axes[i]
+                ax.set_visible(True)
+                img = ax.imshow(data, cmap=cmap, aspect="equal")
+                if show_bar:
+                    caxes[i].set_axis_on()
+                    fig.colorbar(img, cax=caxes[i], label="Depth (m)")
+                ax.set_title(panel_title)
+                ax.set_xlabel("x (pixels)")
+                ax.set_ylabel("y (pixels)")
 
-        fig.canvas.draw()
-        plt.pause(0.01)
-        summary = f"[{label}]  min={depth.min():.2f}m  max={depth.max():.2f}m"
-        if gt is not None:
-            summary += f"  | gt min={gt.min():.2f}m  max={gt.max():.2f}m"
-        input(f"{summary} — press Enter for next ")
+            fig.canvas.draw()
+            plt.pause(0.01)
+            summary = f"[{title}]  {format_range(depth)}"
+            if len(panels) > 1 and gt is not None:
+                summary += f"  | gt {format_range(gt)}"
+            input(f"{summary} — press Enter for next ")
 
     plt.ioff()
     plt.show()

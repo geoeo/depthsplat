@@ -161,8 +161,9 @@
         {
             // Step 3/3: run the compiled model. --fp32 must match the build;
             // build_info.json is checked at startup and a mismatch is reported.
-            // The .so hard-codes absolute paths to its .cubin kernels, so it only
-            // runs from the directory it was compiled into.
+            // The .so bakes absolute paths to its .cubin kernels. Python's
+            // aot_load cannot override them, so this build must stay in the
+            // directory it was compiled into (C++ can pass a cubin_dir instead).
             "name": "Run Depth .so: fp32 (default)",
             "type": "debugpy",
             "python": "/opt/conda/envs/depthsplat/bin/python",
@@ -179,7 +180,6 @@
                 "--dataset", "realm_1_with_depth",
                 "--offset", "70",
                 "--count", "3",
-                "--fp32", "on",
                 "--compare-eager",
                 "--output-dir", "${workspaceFolder}/outputs/so_depths"
             ]
