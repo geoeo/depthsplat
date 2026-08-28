@@ -11,16 +11,14 @@ import warnings
 import torch
 from colorama import Fore
 from hydra import compose, initialize_config_dir
-from jaxtyping import install_import_hook
 from omegaconf import DictConfig
 from pytorch_lightning import Trainer
 
+from src.typecheck import typecheck_hook
 
-# Configure beartype and jaxtyping.
-with install_import_hook(
-    ("src",),
-    ("beartype", "beartype"),
-):
+# Configure beartype and jaxtyping. Set TYPECHECK_DISABLED in the environment
+# before importing this module to skip the hook (required for torch.export()).
+with typecheck_hook():
     from src.config import load_typed_root_config
     from src.dataset.data_module import DataModule
     from src.global_cfg import set_cfg
