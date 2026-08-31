@@ -25,6 +25,7 @@ from pathlib import Path
 
 import torch
 import yaml
+from omegaconf import DictConfig, OmegaConf
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
@@ -201,6 +202,27 @@ def build_config(data_root: Path):
             far=dataset_cfg["far"],
         )
     )
+
+
+def export_dataset_cfg(cfg_dict: DictConfig | dict, output_path: str | Path) -> Path:
+    """Serialize a dataset config to a .pt2 snapshot that can be restored later.
+
+    The object is stored as plain Python data, not as a torch.export ExportedProgram;
+    this is a convenience snapshot for the runtime config used by the export pipeline.
+    """
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = OmegaConf.to_container(cfg_dict, resolve=True)
+    torch.save({"cfg_dict": payload}, str(path))
+    return path
+
+
+def load_dataset_cfg(path: str | Path) -> DictConfig:
+    """Load a cfg_dict snapshot produced by export_dataset_cfg()."""
+    payload = torch.load(str(path), map_location="cpu")
+    if isinstance(payload, dict) and "cfg_dict" in payload:
+        payload = payload["cfg_dict"]
+    return OmegaConf.create(payload)
 
 
 def build_model(cfg_dict, device: str, num_views: int) -> DepthExport:

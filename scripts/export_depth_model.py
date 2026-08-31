@@ -42,6 +42,9 @@ def main() -> int:
                         help="dynamo-based tracing (true) or non-strict. Both work; "
                              "strict is the stronger check.")
     common.add_precision_arg(parser)
+    parser.add_argument("--dataset-output", type=Path, default=None,
+                        help="optional .pt2 file to save the generated cfg_dict used "
+                             "for the export")
     parser.add_argument("--skip-check", action="store_true",
                         help="skip the eager-vs-exported comparison")
     args = parser.parse_args()
@@ -49,7 +52,13 @@ def main() -> int:
     common.apply_precision(args)
 
     print("building model ...")
-    model, inputs = common.build_model_and_inputs(args)
+    common.prepare_scenes(args)
+    cfg_dict = common.build_config(args.data_root)
+    if args.dataset_output is not None:
+        saved = common.export_dataset_cfg(cfg_dict, args.dataset_output)
+        print(f"saved dataset cfg to {saved}")
+    model = common.build_model(cfg_dict, args.device, args.num_views)
+    inputs = common.first_inputs(cfg_dict, args.device, args.num_views)
 
     with torch.no_grad():
         reference = model(*inputs).clone()
