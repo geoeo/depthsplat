@@ -17,7 +17,7 @@ agree with how the .so was built: the precision is not recorded inside the .so,
 and a mismatch is silent -- the depths are simply wrong by metres. The build
 directory's build_info.json is checked at startup to catch exactly that.
 
-Step 3 of 3. This is the Python stand-in for the C++ loader: it drives the same
+Step 2 of 2. This is the Python stand-in for the C++ loader: it drives the same
 .so through torch._export.aot_load.
 """
 

@@ -12,8 +12,8 @@ The result is a serialised graph, not a state dict -- load it with
 `torch.export.load`, never `torch.load`. It is device- and shape-specialised:
 V, H and W are baked in.
 
-Step 2 of 3:
-    export_depth_model.py    -> .pt2   (graph)
+Steps:
+    export_depth_model.py    -> .pt2   (graph) [Optional]
     aot_compile_depth.py     -> .so    (compiled kernels)
     run_depth_so.py          -> runs the .so
 """

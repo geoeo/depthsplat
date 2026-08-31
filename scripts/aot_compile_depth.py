@@ -45,7 +45,7 @@ and the cost-volume regression amplifies that into metres. fp32 is the default
 because it is what reproduces the Python pipeline; choose `off` only when the
 ~25% speedup is worth metre-scale disagreement.
 
-Step 2 of 3. Takes a few minutes; torch 2.4 uses torch._export.aot_compile.
+Step 1 of 2. Takes a few minutes; torch 2.4 uses torch._export.aot_compile.
 """
 
 import argparse

@@ -95,8 +95,8 @@
             ]
         },
         {
-            // Step 1/3: torch.export the depth predictor to a serialised graph.
-            // Load the result with torch.export.load, not torch.load.
+            // Optional: export the depth predictor to a serialised graph for inspection/debugging.
+            // The .so is built separately from the live model; it does not require this .pt2 file.
             "name": "Export Depth Model (.pt2)",
             "type": "debugpy",
             "python": "/opt/conda/envs/depthsplat/bin/python",
@@ -110,13 +110,14 @@
             },
             "args": [
                 "--dataset", "realm_1_with_depth",
-                "--offset", "70",
+                "--offset", "80",
                 "--count", "3",
-                "--output", "${workspaceFolder}/outputs/depth_predictor.pt2"
+                "--output", "${workspaceFolder}/outputs/depth_predictor.pt2",
+                "--dataset-output", "${workspaceFolder}/outputs/dataset_cfg.pt2"
             ]
         },
         {
-            // Step 2/3: compile to a native .so. Takes ~2.5 minutes.
+            // Step 1/2: compile to a native .so. Takes ~2.5 minutes.
             // fp32 matches the Python pipeline to ~1e-03 m. Writes outputs/aoti/fp32/
             // plus a build_info.json recording the precision.
             "name": "AOT Compile Depth: fp32 (default)",
@@ -132,13 +133,14 @@
             },
             "args": [
                 "--dataset", "realm_1_with_depth",
-                "--offset", "70",
+                "--offset", "80",
                 "--count", "3",
+                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",
                 "--fp32", "on"
             ]
         },
         {
-            // Step 2/3, TF32 variant: ~25% faster, but disagrees with the Python
+            // Step 1/2, TF32 variant: ~25% faster, but disagrees with the Python
             // reference by metres. Writes outputs/aoti/tf32/.
             "name": "AOT Compile Depth: tf32 (fast)",
             "type": "debugpy",
@@ -153,13 +155,14 @@
             },
             "args": [
                 "--dataset", "realm_1_with_depth",
-                "--offset", "70",
+                "--offset", "80",
                 "--count", "3",
+                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",
                 "--fp32", "off"
             ]
         },
         {
-            // Step 3/3: run the compiled model. --fp32 must match the build;
+            // Step 2/2: run the compiled model. --fp32 must match the build;
             // build_info.json is checked at startup and a mismatch is reported.
             // The .so bakes absolute paths to its .cubin kernels. Python's
             // aot_load cannot override them, so this build must stay in the
@@ -178,14 +181,15 @@
             "args": [
                 "--so", "${workspaceFolder}/outputs/aoti/fp32/depth_predictor_fp32.so",
                 "--dataset", "realm_1_with_depth",
-                "--offset", "70",
+                "--offset", "80",
                 "--count", "3",
+                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",
                 "--compare-eager",
                 "--output-dir", "${workspaceFolder}/outputs/so_depths"
             ]
         },
         {
-            // Step 3/3, TF32 variant. Expect a ~6 m gap against eager -- that is the
+            // Step 2/2, TF32 variant. Expect a ~6 m gap against eager -- that is the
             // TF32 kernel divergence, not a broken build.
             "name": "Run Depth .so: tf32 (fast)",
             "type": "debugpy",
@@ -201,8 +205,9 @@
             "args": [
                 "--so", "${workspaceFolder}/outputs/aoti/tf32/depth_predictor_tf32.so",
                 "--dataset", "realm_1_with_depth",
-                "--offset", "70",
+                "--offset", "80",
                 "--count", "3",
+                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",
                 "--fp32", "off",
                 "--compare-eager"
             ]
