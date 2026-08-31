@@ -325,7 +325,7 @@ class AttentionBlock(nn.Module):
         use_new_attention_order=False,
         postnorm=False,
         channels_per_group=None,
-        num_frames=2,
+        num_frames=None,
         use_cross_view_self_attn=False,
     ):
         super().__init__()
@@ -362,7 +362,19 @@ class AttentionBlock(nn.Module):
         self.postnorm = postnorm
 
     def forward(self, x):
-        return checkpoint(self._forward, (x,), self.parameters(), True)   # TODO: check checkpoint usage, is True # TODO: fix the .half call!!!
+        # Honour the flag stored in __init__, as ResBlock already does: an unconditional
+        # True puts a custom autograd.Function in the graph that torch.export() cannot
+        # trace, for no benefit at inference.
+        #
+        # Memory, summed over the 6 attention blocks of one 3-view 480x640 scene
+        # (inputs (3,128,15,20) x3 and (3,64,15,20) x3; 900 cross-view tokens):
+        #   use_checkpoint=True    10 MiB activations retained,  251 MiB peak fwd+bwd
+        #   use_checkpoint=False   71 MiB activations retained,  233 MiB peak fwd+bwd
+        # Checkpointing saves ~61 MiB of retained activations, but the recompute raises
+        # peak by ~18 MiB -- a net loss at this size (both columns scale with batch).
+        # Under no_grad no graph is built, so the flag is free at inference either way:
+        # end-to-end peak was identical to the byte (4777436160) with it on and off.
+        return checkpoint(self._forward, (x,), self.parameters(), self.use_checkpoint)   # TODO: fix the .half call!!!
         #return pt_checkpoint(self._forward, x)  # pytorch
 
     def _forward(self, x):
@@ -532,7 +544,7 @@ class QKVAttentionLegacy(nn.Module):
     A module which performs QKV attention. Matches legacy QKVAttention + input/ouput heads shaping
     """
 
-    def __init__(self, n_heads, n_frames=2, use_cross_view_self_attn=False):
+    def __init__(self, n_heads, n_frames=None, use_cross_view_self_attn=False):
         super().__init__()
         self.n_heads = n_heads
         self.n_frames = n_frames
@@ -549,6 +561,11 @@ class QKVAttentionLegacy(nn.Module):
         # (b v) ...
         if self.use_cross_view_self_attn:
             n_views = self.n_frames if num_views is None else num_views
+            if n_views is None:
+                raise RuntimeError(
+                    "num_views is not configured; call set_num_views(module, V) "
+                    "before forward or torch.export()"
+                )
             qkv = rearrange(qkv, "(b v) n t -> b n (v t)", v=n_views)
 
         bs, width, length = qkv.shape
@@ -680,7 +697,7 @@ class UNetModel(nn.Module):
         conv_kernel_size=3,
         concat_condition=False,
         concat_conv3x3=False,
-        num_frames=2,
+        num_frames=None,
         use_cross_view_self_attn=False,
         downsample_factor=None,
     ):

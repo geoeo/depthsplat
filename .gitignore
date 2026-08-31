@@ -170,3 +170,6 @@ output
 checkpoints
 custom/*
 !custom/.gitkeep
+
+# Claude Code agent definitions (local only)
+.github/agents/

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Depth prediction on custom realm_1 or realm_2 datasets using pretrained model
+# Depth prediction on custom realm_1 or realm_2 datasets using the small (vits) pretrained model
 # Set REALM_DATASET to "realm_1" or "realm_2" below
 
 REALM_DATASET=${1:-realm_1}
@@ -15,12 +15,13 @@ FAR=$(echo "$NEAR_FAR" | awk '{print $2}')
 echo "Using image_shape: [$IMAGE_SHAPE]"
 echo "Using near/far: [$NEAR, $FAR]"
 
-OUTPUT_DIR=outputs/depthsplat-depth-base-$REALM_DATASET
+OUTPUT_DIR=outputs/depthsplat-depth-small-$REALM_DATASET
 if [ -d "$OUTPUT_DIR" ]; then
     echo "Removing existing output directory: $OUTPUT_DIR"
     rm -rf "$OUTPUT_DIR"
 fi
 
+# small (vits) checkpoint was trained with num_scales=1, upsample_factor=8 (not the base model's 2/4)
 CUDA_VISIBLE_DEVICES=0 python -m src.main \
 +experiment=re10k \
 dataset=custom_images \
@@ -32,18 +33,15 @@ mode=test \
 dataset.image_shape=[$IMAGE_SHAPE] \
 dataset.near=$NEAR \
 dataset.far=$FAR \
-model.encoder.num_scales=2 \
-model.encoder.upsample_factor=4 \
+model.encoder.num_scales=1 \
+model.encoder.upsample_factor=8 \
 model.encoder.lowest_feature_resolution=8 \
-model.encoder.monodepth_vit_type=vitb \
+model.encoder.monodepth_vit_type=vits \
 train.forward_depth_only=true \
 model.encoder.train_depth_only=true \
-checkpointing.pretrained_depth=pretrained/depthsplat-depth-base-352x640-randview2-8-65a892c5.pth \
+checkpointing.pretrained_depth=pretrained/depthsplat-depth-small-352x640-randview2-8-e807bd82.pth \
 test.compute_scores=false \
 test.save_depth=true \
 test.save_depth_concat_img=true \
 test.save_depth_npy=true \
 output_dir=$OUTPUT_DIR
-
-
-

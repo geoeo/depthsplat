@@ -7,7 +7,6 @@ import hydra
 import torch
 import wandb
 from colorama import Fore
-from jaxtyping import install_import_hook
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import (
@@ -18,12 +17,12 @@ from pytorch_lightning.loggers.wandb import WandbLogger
 
 from pytorch_lightning.plugins.environments import LightningEnvironment
 
+from src.precision import set_fp32_precision
+from src.typecheck import typecheck_hook
 
-# Configure beartype and jaxtyping.
-with install_import_hook(
-    ("src",),
-    ("beartype", "beartype"),
-):
+# Configure beartype and jaxtyping. Set TYPECHECK_DISABLED in the environment
+# before importing this module to skip the hook (required for torch.export()).
+with typecheck_hook():
     from src.config import load_typed_root_config
     from src.dataset.data_module import DataModule
     from src.global_cfg import set_cfg
@@ -46,6 +45,7 @@ def cyan(text: str) -> str:
     config_path="../config",
     config_name="main",
 )
+
 def train(cfg_dict: DictConfig):
     if cfg_dict["mode"] == "train" and cfg_dict["train"]["eval_model_every_n_val"] > 0:
         eval_cfg_dict = copy.deepcopy(cfg_dict)
@@ -265,6 +265,8 @@ def train(cfg_dict: DictConfig):
 
 if __name__ == "__main__":
     warnings.filterwarnings("ignore")
-    torch.set_float32_matmul_precision('high')
+    # Unchanged behaviour, now stated explicitly rather than implied by a torch
+    # default: training runs with TF32. See src/precision.py.
+    set_fp32_precision(full_fp32=False)
 
     train()

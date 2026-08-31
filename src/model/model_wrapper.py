@@ -14,6 +14,7 @@ from torch import Tensor, nn, optim
 import numpy as np
 import json
 import os
+import shutil
 import time
 from tqdm import tqdm
 import torch.nn.functional as F
@@ -483,6 +484,13 @@ class ModelWrapper(LightningModule):
                     )  # [V, H, W]
 
                 index = batch["context"]["index"][0]
+                frame_ids = batch["context"].get("frame_id")
+                gt_paths = batch["context"].get("depth_gt_path")
+                if frame_ids is not None:
+                    # Collated as [view][batch]; batch size is 1 during testing.
+                    frame_ids = [f[0] for f in frame_ids]
+                if gt_paths is not None:
+                    gt_paths = [p[0] for p in gt_paths]
 
                 if self.test_cfg.save_depth_concat_img:
                     # concat (img0, img1, depth0, depth1)
@@ -492,7 +500,7 @@ class ModelWrapper(LightningModule):
 
                     depth_concat = []
 
-                for idx, depth_i in zip(index, depth):
+                for view, (idx, depth_i) in enumerate(zip(index, depth)):
                     depth_viz = viz_depth_tensor(
                         1.0 / depth_i, return_numpy=True
                     )  # [H, W, 3]
@@ -505,6 +513,15 @@ class ModelWrapper(LightningModule):
                     os.makedirs(save_dir, exist_ok=True)
                     Image.fromarray(depth_viz).save(save_path)
 
+                    save_image(
+                        batch["context"]["image"][0][view],
+                        path / "images" / scene / "depth" / f"{idx:0>6}_cam.png",
+                    )
+
+                    if frame_ids is not None:
+                        gt = gt_paths[view] if gt_paths and gt_paths[view] else "none"
+                        print(f"[depth] {scene} {idx:0>6} <- {frame_ids[view]} | gt: {gt}")
+
                     # save depth as npy
                     if self.test_cfg.save_depth_npy:
                         depth_npy = depth_i.detach().cpu().numpy()
@@ -512,6 +529,13 @@ class ModelWrapper(LightningModule):
                         save_dir = os.path.dirname(save_path)
                         os.makedirs(save_dir, exist_ok=True)
                         np.save(save_path, depth_npy)
+
+                        gt_path = gt_paths[view] if gt_paths else ""
+                        if gt_path and os.path.isfile(gt_path):
+                            shutil.copyfile(
+                                gt_path,
+                                path / "images" / scene / "depth" / f"{idx:0>6}_gt.npy",
+                            )
 
                 if self.test_cfg.save_depth_concat_img:
                     depth_concat = np.concatenate(depth_concat, axis=1)  # [H, VW, 3]

@@ -27,22 +27,19 @@ def generate_shift_window_attn_mask(
     # Ref: https://github.com/microsoft/Swin-Transformer/blob/main/models/swin_transformer.py
     # calculate attention mask for SW-MSA
     h, w = input_resolution
-    img_mask = torch.zeros((1, h, w, 1)).to(device)  # 1 H W 1
-    h_slices = (
-        slice(0, -window_size_h),
-        slice(-window_size_h, -shift_size_h),
-        slice(-shift_size_h, None),
-    )
-    w_slices = (
-        slice(0, -window_size_w),
-        slice(-window_size_w, -shift_size_w),
-        slice(-shift_size_w, None),
-    )
-    cnt = 0
-    for h in h_slices:
-        for w in w_slices:
-            img_mask[:, h, w, :] = cnt
-            cnt += 1
+    # The mask labels each pixel with the index of its (row band, column band) pair,
+    # where the three bands are [0, n-window), [n-window, n-shift), [n-shift, n) and
+    # the label is row_band * 3 + col_band.
+    #
+    # This used to be written by filling a torch.zeros() tensor through slice
+    # assignment. torch.export() lifts that tensor as a constant and then rejects the
+    # write with "cannot mutate tensors with frozen storage", so it is built
+    # functionally instead. Bit-identical to the loop it replaces.
+    rows = torch.arange(h, device=device)
+    cols = torch.arange(w, device=device)
+    h_band = (rows >= h - window_size_h).long() + (rows >= h - shift_size_h).long()
+    w_band = (cols >= w - window_size_w).long() + (cols >= w - shift_size_w).long()
+    img_mask = (h_band[:, None] * 3 + w_band[None, :]).to(torch.float32).view(1, h, w, 1)
 
     mask_windows = split_feature(
         img_mask, num_splits=input_resolution[-1] // window_size_w, channel_last=True
