@@ -79,6 +79,7 @@ def main() -> int:
     parser.add_argument("--skip-check", action="store_true",
                         help="skip loading the .so and comparing against eager")
     args = parser.parse_args()
+    common.validate_scene_selection(args)
 
     fp32 = args.fp32 == "on"
     variant = "fp32" if fp32 else "tf32"

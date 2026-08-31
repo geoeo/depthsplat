@@ -155,11 +155,14 @@ def set_tf32(enabled: bool) -> None:
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
     """Scene-selection flags, mirroring scripts/realm_triplet_depth.py."""
-    source = parser.add_mutually_exclusive_group(required=True)
+    source = parser.add_mutually_exclusive_group(required=False)
     source.add_argument("--indices",
                         help="Flat index list relative to --offset, e.g. '[0,1,2,3,4,5]'")
     source.add_argument("--count", type=int,
                         help="Use consecutive indices range(count); must be a multiple of 3")
+    parser.add_argument("--dataset-pt2", type=Path, default=None,
+                        help="Optional snapshot of the cfg_dict produced by the export script; "
+                             "if set, it takes precedence over --dataset/--count/--offset")
     parser.add_argument("--dataset", default="realm_1",
                         choices=["realm_1", "realm_2", "realm_1_with_depth"])
     parser.add_argument("--offset", type=int, default=0,
@@ -174,8 +177,20 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
                              "factorises the batch dim by it.")
 
 
+def validate_scene_selection(args):
+    """Require some scene selection, unless a dataset snapshot already fixes it."""
+    if getattr(args, "dataset_pt2", None) is not None:
+        return
+    if args.count is None and args.indices is None:
+        raise SystemExit("either --dataset-pt2 or one of --count/--indices is required")
+
+
 def prepare_scenes(args):
     """Build the triplet scenes from custom/<dataset>/, as realm_triplet_depth.py does."""
+    if getattr(args, "dataset_pt2", None) is not None:
+        print(f"  using dataset snapshot {args.dataset_pt2}; ignoring --dataset/--count/--offset")
+        return []
+
     from realm_triplet_depth import parse_indices, preprocess
 
     if args.count is not None:
@@ -223,6 +238,17 @@ def load_dataset_cfg(path: str | Path) -> DictConfig:
     if isinstance(payload, dict) and "cfg_dict" in payload:
         payload = payload["cfg_dict"]
     return OmegaConf.create(payload)
+
+
+def build_config_for_args(args):
+    """Return the active cfg_dict, preferring a dataset snapshot when supplied."""
+    dataset_pt2 = getattr(args, "dataset_pt2", None)
+    if dataset_pt2 is not None:
+        if not dataset_pt2.is_file():
+            raise SystemExit(f"no such dataset snapshot: {dataset_pt2}")
+        print(f"loading dataset cfg from {dataset_pt2}")
+        return load_dataset_cfg(dataset_pt2)
+    return build_config(args.data_root)
 
 
 def build_model(cfg_dict, device: str, num_views: int) -> DepthExport:
@@ -280,7 +306,8 @@ def first_inputs(cfg_dict, device: str, num_views: int):
 
 def build_model_and_inputs(args):
     """Stage scenes, build the model, and return it with one example input tuple."""
+    validate_scene_selection(args)
     prepare_scenes(args)
-    cfg_dict = build_config(args.data_root)
+    cfg_dict = build_config_for_args(args)
     model = build_model(cfg_dict, args.device, args.num_views)
     return model, first_inputs(cfg_dict, args.device, args.num_views)

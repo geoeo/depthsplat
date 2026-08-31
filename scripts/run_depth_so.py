@@ -48,6 +48,7 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=None,
                         help="write <scene>.npy depth maps here")
     args = parser.parse_args()
+    common.validate_scene_selection(args)
 
     if not args.so.is_file():
         raise SystemExit(f"no such .so: {args.so} (build it with aot_compile_depth.py)")
@@ -57,7 +58,7 @@ def main() -> int:
 
     print(f"staging scenes from custom/{args.dataset} ...")
     rows = common.prepare_scenes(args)
-    cfg_dict = common.build_config(args.data_root)
+    cfg_dict = common.build_config_for_args(args)
 
     print(f"loading {args.so} ...")
     runner = torch._export.aot_load(str(args.so), args.device)
