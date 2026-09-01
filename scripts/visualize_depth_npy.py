@@ -9,9 +9,9 @@ Handles both layouts this repo produces:
   * run_depth_so.py writes one file per scene, <out>/<scene>.npy, holding the
     whole batch as [B, V, H, W] with no ground truth or camera image.
 
-Ground truth and the camera image are shown when they are found next to the
-depth file, and simply omitted when they are not -- a scene-level file from
-run_depth_so.py renders as a single depth panel.
+Ground truth, the eager-mode depth, and the camera image are shown when they are
+found next to the depth file, and simply omitted when they are not -- a
+scene-level file from run_depth_so.py renders as a single depth panel.
 """
 
 import argparse
@@ -22,7 +22,7 @@ import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PIL import Image
 
-DEFAULT_DIR = Path("/workspaces/outputs/so_depths")
+DEFAULT_DIR = Path("/workspaces/outputs/so_depths_m")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__,
@@ -39,12 +39,25 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="Multiply loaded depth values by this factor before visualization",
     )
+    parser.add_argument(
+        "--display-eager",
+        action="store_true",
+        help="also show the eager-mode depth panel when a `..._eager.npy` sibling exists",
+    )
     return parser.parse_args()
 
 
 def find_depth_files(root: Path) -> list[Path]:
-    """Every depth .npy under `root`, in either layout, ground truth excluded."""
-    return sorted(p for p in root.rglob("*.npy") if not p.stem.endswith("_gt"))
+    """Every depth .npy under `root`, in either layout, ground truth/eager excluded.
+
+    run_depth_so.py also writes a sibling `..._eager.npy` per view; without excluding
+    it here it gets treated as its own primary file, whose `..._eager_cam.png`
+    lookup then misses even though the real `..._cam.png` exists.
+    """
+    return sorted(
+        p for p in root.rglob("*.npy")
+        if not p.stem.endswith("_gt") and not p.stem.endswith("_eager")
+    )
 
 
 def format_range(data: np.ndarray) -> str:
@@ -91,7 +104,8 @@ def main():
         f"Using scale={args.scale}. Press Enter to advance, Ctrl+C to quit."
     )
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    num_cols = 4 if args.display_eager else 3
+    fig, axes = plt.subplots(1, num_cols, figsize=(6 * num_cols, 5))
     fig.subplots_adjust(left=0.04, right=0.95, wspace=0.45)
     plt.ion()
     # One divider axis per image axis, so panels stay identically proportioned
@@ -103,6 +117,8 @@ def main():
         # Siblings exist only in the pipeline layout; absent for scene-level files.
         gt_path = path.with_name(f"{path.stem}_gt.npy")
         gt = np.load(gt_path) * args.scale if gt_path.is_file() else None
+        eager_path = path.with_name(f"{path.stem}_eager.npy")
+        eager = np.load(eager_path) * args.scale if args.display_eager and eager_path.is_file() else None
         rgb_path = path.with_name(f"{path.stem}_cam.png")
         rgb = np.asarray(Image.open(rgb_path).convert("RGB")) if rgb_path.is_file() else None
 
@@ -110,13 +126,15 @@ def main():
         base = f"{scene}/{path.name}" if path.parent.name == "depth" else scene
 
         for title, depth in iter_frames(array, base):
-            # Left to right: camera image, depth, ground truth -- each only if present.
+            # Left to right: camera image, depth, ground truth, eager -- each only if present.
             panels = []
             if rgb is not None:
                 panels.append((rgb, f"{scene}/{rgb_path.name}", None, False))
             panels.append((depth, title, "plasma", True))
             if gt is not None and gt.shape == depth.shape:
                 panels.append((gt, f"{title} (gt)", "plasma", True))
+            if eager is not None and eager.shape == depth.shape:
+                panels.append((eager, f"{title} (eager)", "plasma", True))
 
             for ax, cax in zip(axes, caxes):
                 ax.clear()
@@ -140,6 +158,8 @@ def main():
             summary = f"[{title}]  {format_range(depth)}"
             if len(panels) > 1 and gt is not None:
                 summary += f"  | gt {format_range(gt)}"
+            if len(panels) > 1 and eager is not None:
+                summary += f"  | eager {format_range(eager)}"
             input(f"{summary} — press Enter for next ")
 
     plt.ioff()
