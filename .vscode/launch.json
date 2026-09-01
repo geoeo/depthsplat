@@ -184,6 +184,7 @@
                 "--offset", "80",
                 "--count", "3",
                 "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",
+                "--benchmark", "--iters", "8",
                 "--compare-eager",
                 "--output-dir", "${workspaceFolder}/outputs/so_depths"
             ]
@@ -209,7 +210,9 @@
                 "--count", "3",
                 "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",
                 "--fp32", "off",
-                "--compare-eager"
+                "--benchmark", "--iters", "8",
+                "--compare-eager",
+                "--output-dir", "${workspaceFolder}/outputs/so_depths"
             ]
         }
     ]
