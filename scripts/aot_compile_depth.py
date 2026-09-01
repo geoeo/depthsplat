@@ -78,6 +78,9 @@ def main() -> int:
                              "an earlier build are otherwise left behind)")
     parser.add_argument("--skip-check", action="store_true",
                         help="skip loading the .so and comparing against eager")
+    parser.add_argument("--deployment", action="store_true",
+                        help="strip build intermediates (.o/.cpp) from the build dir, "
+                             "leaving only the .so + .cubin files needed to run inference")
     args = parser.parse_args()
     common.validate_scene_selection(args)
 
@@ -123,12 +126,23 @@ def main() -> int:
                   "against eager at fp32 rounding)")
 
     common.write_manifest(build_dir, fp32, output.name)
+    if args.deployment:
+        strip_build_intermediates(build_dir)
     audit(Path(so_path), build_dir)
 
     print(f"\nbuild directory: {build_dir}")
     print(f"run it with: python scripts/run_depth_so.py --so {so_path} "
           f"--fp32 {args.fp32}")
     return 0
+
+
+def strip_build_intermediates(build_dir: Path) -> None:
+    """Delete .o/.cpp under build_dir -- needed only to build, not to run inference."""
+    leftovers = sorted(build_dir.glob("*.o")) + sorted(build_dir.glob("*.cpp"))
+    for f in leftovers:
+        f.unlink()
+    if leftovers:
+        print(f"  --deployment: removed {len(leftovers)} build intermediate(s) (.o/.cpp)")
 
 
 def audit(so_path: Path, build_dir: Path) -> None:
