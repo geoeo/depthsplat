@@ -152,11 +152,9 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset", "realm_1_with_depth",
-                "--offset", "80",
-                "--count", "3",
                 "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",
-                "--fp32", "on"
+                "--fp32", "on",
+                "--deployment"
             ]
         },
         {
@@ -174,11 +172,9 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset", "realm_1_with_depth",
-                "--offset", "80",
-                "--count", "3",
                 "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",
-                "--fp32", "off"
+                "--fp32", "off",
+                "--deployment"
             ]
         },
         {
