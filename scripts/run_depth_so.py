@@ -49,7 +49,8 @@ def main() -> int:
     parser.add_argument("--benchmark", action="store_true", help="time the .so")
     parser.add_argument("--iters", type=int, default=8, help="benchmark iterations")
     parser.add_argument("--output-dir", type=Path, default=None,
-                        help="write <scene>.npy depth maps here")
+                        help="write images/<scene>/depth/{idx}.npy here, matching "
+                             "realm_triplet_depth.py's directory layout")
     parser.add_argument("--save-cam-images", action="store_true",
                         help="also write each view's input camera image to --output-dir")
     args = parser.parse_args()
@@ -80,7 +81,7 @@ def main() -> int:
 
     worst = 0.0
     count = 0
-    for scene, inputs in common.iter_inputs(cfg_dict, args.device, args.num_views):
+    for scene, inputs, depth_gt in common.iter_inputs_with_gt(cfg_dict, args.device, args.num_views):
         count += 1
         with torch.no_grad():
             depth = runner(*inputs)
@@ -111,21 +112,28 @@ def main() -> int:
                   f"({1000 / per_call:.2f} calls/s)")
 
         if args.output_dir:
+            depth_dir = args.output_dir / "images" / scene / "depth"
+            depth_dir.mkdir(parents=True, exist_ok=True)
             for v in range(depth.shape[1]):
-                path = args.output_dir / f"{scene}_v{v}.npy"
+                path = depth_dir / f"{v:0>6}.npy"
                 np.save(path, depth[0, v].cpu().numpy())
                 print(f"  wrote {path}")
             if model is not None:
                 for v in range(reference.shape[1]):
-                    eager_path = args.output_dir / f"{scene}_v{v}_eager.npy"
+                    eager_path = depth_dir / f"{v:0>6}_eager.npy"
                     np.save(eager_path, reference[0, v].cpu().numpy())
                     print(f"  wrote {eager_path}")
             if args.save_cam_images:
                 images = inputs[0]
                 for v in range(images.shape[1]):
-                    image_path = args.output_dir / f"{scene}_v{v}_image.png"
+                    image_path = depth_dir / f"{v:0>6}_cam.png"
                     save_image(images[0, v], image_path)
                     print(f"  wrote {image_path}")
+            if depth_gt is not None:
+                for v in range(depth_gt.shape[0]):
+                    gt_path = depth_dir / f"{v:0>6}_gt.npy"
+                    np.save(gt_path, depth_gt[v].cpu().numpy())
+                    print(f"  wrote {gt_path}")
 
     print(f"\nran {count} scene(s) from {len(rows)} staged triplet(s)")
     if model is not None:

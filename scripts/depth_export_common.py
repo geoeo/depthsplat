@@ -23,6 +23,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import torch
 import yaml
 from omegaconf import DictConfig, OmegaConf
@@ -223,9 +224,10 @@ def export_dataset_cfg(cfg_dict: DictConfig | dict, output_path: str | Path,
                         num_views: int | None = None) -> Path:
     """Serialize cfg_dict plus every staged scene's raw tensors to a .pt2 snapshot.
 
-    Embedding the tensors (image, intrinsics, extrinsics, near/far) makes the
-    snapshot self-contained: load_dataset_scenes() does not re-read dataset.roots
-    off disk, only the cfg_dict's non-tensor settings (image_shape, near, far, ...)
+    Embedding the tensors (image, intrinsics, extrinsics, near/far, and
+    ground-truth depth when the scene has any) makes the snapshot self-contained:
+    load_dataset_scenes()/load_dataset_gt_depth() do not re-read dataset.roots off
+    disk, only the cfg_dict's non-tensor settings (image_shape, near, far, ...)
     are still path-shaped metadata.
     """
     path = Path(output_path)
@@ -233,18 +235,38 @@ def export_dataset_cfg(cfg_dict: DictConfig | dict, output_path: str | Path,
     payload = OmegaConf.to_container(cfg_dict, resolve=True)
     scenes = []
     if num_views is not None:
-        for scene, (images, intrinsics, extrinsics, min_depth, max_depth) in \
-                iter_inputs(cfg_dict, "cpu", num_views):
-            scenes.append({
+        for scene, batch in _iter_batches(cfg_dict, num_views):
+            ctx = batch["context"]
+            row = {
                 "scene": scene,
-                "images": images,
-                "intrinsics": intrinsics,
-                "extrinsics": extrinsics,
-                "min_depth": min_depth,
-                "max_depth": max_depth,
-            })
+                "images": ctx["image"],
+                "intrinsics": ctx["intrinsics"],
+                "extrinsics": ctx["extrinsics"],
+                "min_depth": (1.0 / ctx["far"]),
+                "max_depth": (1.0 / ctx["near"]),
+            }
+            depth_gt = _load_gt_depth(ctx.get("depth_gt_path"))
+            if depth_gt is not None:
+                row["depth_gt"] = depth_gt
+                print(f"  {scene}: embedding ground-truth depth {tuple(depth_gt.shape)}")
+            scenes.append(row)
     torch.save({"cfg_dict": payload, "scenes": scenes}, str(path))
     return path
+
+
+def _load_gt_depth(depth_gt_paths) -> torch.Tensor | None:
+    """Stack per-view ground-truth depth .npy files into [V, H, W], or None if absent.
+
+    `depth_gt_paths` is a list of V entries, each collated to a batch-size-1 list
+    by the dataloader ("" when a view has no ground truth); mirrors how
+    model_wrapper.py reads the same field.
+    """
+    if depth_gt_paths is None:
+        return None
+    paths = [p[0] if isinstance(p, (list, tuple)) else p for p in depth_gt_paths]
+    if not paths or not all(p and Path(p).is_file() for p in paths):
+        return None
+    return torch.from_numpy(np.stack([np.load(p) for p in paths], axis=0)).float()
 
 
 def load_dataset_cfg(path: str | Path) -> DictConfig:
@@ -267,6 +289,15 @@ def load_dataset_scenes(path: str | Path, device: str = "cpu"):
             row["min_depth"].to(device),
             row["max_depth"].to(device),
         )
+
+
+def load_dataset_gt_depth(path: str | Path, device: str = "cpu"):
+    """Yield (scene, depth_gt) for every embedded scene; depth_gt is None if absent."""
+    payload = torch.load(str(path), map_location="cpu")
+    scenes = payload["scenes"] if isinstance(payload, dict) else []
+    for row in scenes:
+        depth_gt = row.get("depth_gt")
+        yield row["scene"], depth_gt.to(device) if depth_gt is not None else None
 
 
 def build_config_for_args(args):
@@ -305,6 +336,36 @@ def build_model(cfg_dict, device: str, num_views: int) -> DepthExport:
 
 def iter_inputs(cfg_dict, device: str, num_views: int):
     """Yield (scene_name, flat input tuple) for every staged scene."""
+    for scene, batch in _iter_batches(cfg_dict, num_views):
+        ctx = batch["context"]
+        yield scene, (
+            ctx["image"].to(device),
+            ctx["intrinsics"].to(device),
+            ctx["extrinsics"].to(device),
+            (1.0 / ctx["far"]).to(device),
+            (1.0 / ctx["near"]).to(device),
+        )
+
+
+def iter_inputs_with_gt(cfg_dict, device: str, num_views: int):
+    """Yield (scene_name, flat input tuple, depth_gt) for every staged scene.
+
+    depth_gt is a [V, H, W] tensor on `device`, or None for scenes without any.
+    """
+    for scene, batch in _iter_batches(cfg_dict, num_views):
+        ctx = batch["context"]
+        depth_gt = _load_gt_depth(ctx.get("depth_gt_path"))
+        yield scene, (
+            ctx["image"].to(device),
+            ctx["intrinsics"].to(device),
+            ctx["extrinsics"].to(device),
+            (1.0 / ctx["far"]).to(device),
+            (1.0 / ctx["near"]).to(device),
+        ), depth_gt.to(device) if depth_gt is not None else None
+
+
+def _iter_batches(cfg_dict, num_views: int):
+    """Yield (scene_name, batch) for every staged scene, enforcing the view count V."""
     cfg = load_typed_root_config(cfg_dict)
     loader = DataModule(cfg.dataset, cfg.data_loader, StepTracker(), global_rank=0).test_dataloader()
     for batch in loader:
@@ -316,13 +377,7 @@ def iter_inputs(cfg_dict, device: str, num_views: int):
                 f"because V is static in the exported graph"
             )
         scene = batch["scene"][0] if isinstance(batch.get("scene"), list) else batch.get("scene")
-        yield scene, (
-            ctx["image"].to(device),
-            ctx["intrinsics"].to(device),
-            ctx["extrinsics"].to(device),
-            (1.0 / ctx["far"]).to(device),
-            (1.0 / ctx["near"]).to(device),
-        )
+        yield scene, batch
 
 
 def first_inputs(cfg_dict, device: str, num_views: int):
