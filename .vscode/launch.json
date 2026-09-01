@@ -95,6 +95,27 @@
             ]
         },
         {
+            // Optional: save a self-contained dataset snapshot (cfg + raw scene
+            // tensors) for use with --dataset-pt2 in the compile/run scripts.
+            "name": "Export Dataset (.pt2)",
+            "type": "debugpy",
+            "python": "/opt/conda/envs/depthsplat/bin/python",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/export_dataset.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0"
+            },
+            "args": [
+                "--dataset", "realm_1_with_depth",
+                "--offset", "80",
+                "--count", "3",
+                "--output", "${workspaceFolder}/outputs/dataset_cfg.pt2"
+            ]
+        },
+        {
             // Optional: export the depth predictor to a serialised graph for inspection/debugging.
             // The .so is built separately from the live model; it does not require this .pt2 file.
             "name": "Export Depth Model (.pt2)",
@@ -112,8 +133,7 @@
                 "--dataset", "realm_1_with_depth",
                 "--offset", "80",
                 "--count", "3",
-                "--output", "${workspaceFolder}/outputs/depth_predictor.pt2",
-                "--dataset-output", "${workspaceFolder}/outputs/dataset_cfg.pt2"
+                "--output", "${workspaceFolder}/outputs/depth_predictor.pt2"
             ]
         },
         {

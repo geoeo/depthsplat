@@ -219,16 +219,31 @@ def build_config(data_root: Path):
     )
 
 
-def export_dataset_cfg(cfg_dict: DictConfig | dict, output_path: str | Path) -> Path:
-    """Serialize a dataset config to a .pt2 snapshot that can be restored later.
+def export_dataset_cfg(cfg_dict: DictConfig | dict, output_path: str | Path,
+                        num_views: int | None = None) -> Path:
+    """Serialize cfg_dict plus every staged scene's raw tensors to a .pt2 snapshot.
 
-    The object is stored as plain Python data, not as a torch.export ExportedProgram;
-    this is a convenience snapshot for the runtime config used by the export pipeline.
+    Embedding the tensors (image, intrinsics, extrinsics, near/far) makes the
+    snapshot self-contained: load_dataset_scenes() does not re-read dataset.roots
+    off disk, only the cfg_dict's non-tensor settings (image_shape, near, far, ...)
+    are still path-shaped metadata.
     """
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = OmegaConf.to_container(cfg_dict, resolve=True)
-    torch.save({"cfg_dict": payload}, str(path))
+    scenes = []
+    if num_views is not None:
+        for scene, (images, intrinsics, extrinsics, min_depth, max_depth) in \
+                iter_inputs(cfg_dict, "cpu", num_views):
+            scenes.append({
+                "scene": scene,
+                "images": images,
+                "intrinsics": intrinsics,
+                "extrinsics": extrinsics,
+                "min_depth": min_depth,
+                "max_depth": max_depth,
+            })
+    torch.save({"cfg_dict": payload, "scenes": scenes}, str(path))
     return path
 
 
@@ -238,6 +253,20 @@ def load_dataset_cfg(path: str | Path) -> DictConfig:
     if isinstance(payload, dict) and "cfg_dict" in payload:
         payload = payload["cfg_dict"]
     return OmegaConf.create(payload)
+
+
+def load_dataset_scenes(path: str | Path, device: str = "cpu"):
+    """Load the embedded (scene, flat input tuple) pairs saved by export_dataset_cfg()."""
+    payload = torch.load(str(path), map_location="cpu")
+    scenes = payload["scenes"] if isinstance(payload, dict) else []
+    for row in scenes:
+        yield row["scene"], (
+            row["images"].to(device),
+            row["intrinsics"].to(device),
+            row["extrinsics"].to(device),
+            row["min_depth"].to(device),
+            row["max_depth"].to(device),
+        )
 
 
 def build_config_for_args(args):

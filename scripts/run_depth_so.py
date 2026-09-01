@@ -22,6 +22,7 @@ Step 2 of 2. This is the Python stand-in for the C++ loader: it drives the same
 """
 
 import argparse
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -33,6 +34,8 @@ import depth_export_common as common  # noqa: E402
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
+
+from src.misc.image_io import save_image  # noqa: E402
 
 
 def main() -> int:
@@ -47,6 +50,8 @@ def main() -> int:
     parser.add_argument("--iters", type=int, default=8, help="benchmark iterations")
     parser.add_argument("--output-dir", type=Path, default=None,
                         help="write <scene>.npy depth maps here")
+    parser.add_argument("--save-cam-images", action="store_true",
+                        help="also write each view's input camera image to --output-dir")
     args = parser.parse_args()
     common.validate_scene_selection(args)
 
@@ -69,6 +74,8 @@ def main() -> int:
         model = common.build_model(cfg_dict, args.device, args.num_views)
 
     if args.output_dir:
+        if args.output_dir.exists():
+            shutil.rmtree(args.output_dir)
         args.output_dir.mkdir(parents=True, exist_ok=True)
 
     worst = 0.0
@@ -104,9 +111,21 @@ def main() -> int:
                   f"({1000 / per_call:.2f} calls/s)")
 
         if args.output_dir:
-            path = args.output_dir / f"{scene}.npy"
-            np.save(path, depth.cpu().numpy())
-            print(f"  wrote {path}")
+            for v in range(depth.shape[1]):
+                path = args.output_dir / f"{scene}_v{v}.npy"
+                np.save(path, depth[0, v].cpu().numpy())
+                print(f"  wrote {path}")
+            if model is not None:
+                for v in range(reference.shape[1]):
+                    eager_path = args.output_dir / f"{scene}_v{v}_eager.npy"
+                    np.save(eager_path, reference[0, v].cpu().numpy())
+                    print(f"  wrote {eager_path}")
+            if args.save_cam_images:
+                images = inputs[0]
+                for v in range(images.shape[1]):
+                    image_path = args.output_dir / f"{scene}_v{v}_image.png"
+                    save_image(images[0, v], image_path)
+                    print(f"  wrote {image_path}")
 
     print(f"\nran {count} scene(s) from {len(rows)} staged triplet(s)")
     if model is not None:
