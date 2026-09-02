@@ -13,10 +13,24 @@ The result is a serialised graph, not a state dict -- load it with
 V, H and W are baked in.
 
 Steps:
-    export_dataset.py         -> .pt2   (dataset cfg + raw tensors) [Optional]
-    export_depth_model.py    -> .pt2   (graph) [Optional]
-    aot_compile_depth.py     -> .so    (compiled kernels)
-    run_depth_so.py          -> runs the .so
+    export_dataset.py      -> .pt2  (dataset cfg + raw tensors) [Optional]
+    export_depth_model.py  -> .pt2  (serialised graph) [Optional]
+    aot_compile_depth.py   -> .pt2  (AOTInductor package: compiled .so + kernels)
+    run_depth_aoti.py      -> runs the package
+
+Three different things wear the .pt2 extension here, and they are not
+interchangeable:
+
+    torch.save()                        -> read with torch.load()
+      (export_dataset.py's snapshot: a pickled dict of cfg + tensors)
+    torch.export.save()                 -> read with torch.export.load()
+      (this script: an ExportedProgram, still interpreted at runtime)
+    aoti_compile_and_package()          -> read with aoti_load_package()
+      (aot_compile_depth.py: native code, no Python interpreter in the loop)
+
+This script is optional -- aot_compile_depth.py re-exports the model itself
+rather than consuming the graph written here. Its value is inspection: the node
+count, and the banned-op scan below.
 """
 
 import argparse
@@ -40,8 +54,8 @@ def main() -> int:
                         help="destination .pt2 (torch.export convention; a .pt "
                              "state dict is a different thing)")
     parser.add_argument("--strict", choices=["true", "false"], default="true",
-                        help="dynamo-based tracing (true) or non-strict. Both work; "
-                             "strict is the stronger check.")
+                        help="dynamo-based tracing (true, torch's own default) or "
+                             "non-strict. Both work; strict is the stronger check.")
     common.add_precision_arg(parser)
     parser.add_argument("--skip-check", action="store_true",
                         help="skip the eager-vs-exported comparison")

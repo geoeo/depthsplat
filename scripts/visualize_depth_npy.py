@@ -6,12 +6,12 @@ Handles both layouts this repo produces:
   * the pipeline (realm_triplet_depth.py) writes one 2-D [H, W] file per view,
     at <out>/images/<scene>/depth/000000.npy, alongside 000000_gt.npy and
     000000_cam.png;
-  * run_depth_so.py writes one file per scene, <out>/<scene>.npy, holding the
+  * run_depth_aoti.py writes one file per scene, <out>/<scene>.npy, holding the
     whole batch as [B, V, H, W] with no ground truth or camera image.
 
 Ground truth, the eager-mode depth, and the camera image are shown when they are
 found next to the depth file, and simply omitted when they are not -- a
-scene-level file from run_depth_so.py renders as a single depth panel.
+scene-level file from run_depth_aoti.py renders as a single depth panel.
 """
 
 import argparse
@@ -50,7 +50,7 @@ def parse_args() -> argparse.Namespace:
 def find_depth_files(root: Path) -> list[Path]:
     """Every depth .npy under `root`, in either layout, ground truth/eager excluded.
 
-    run_depth_so.py also writes a sibling `..._eager.npy` per view; without excluding
+    run_depth_aoti.py also writes a sibling `..._eager.npy` per view; without excluding
     it here it gets treated as its own primary file, whose `..._eager_cam.png`
     lookup then misses even though the real `..._cam.png` exists.
     """

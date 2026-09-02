@@ -7,7 +7,7 @@
 Scene selection matches scripts/realm_triplet_depth.py; the triplet is generated
 from custom/<dataset>/ on each run. The resulting .pt2 is self-contained --
 load it with depth_export_common.load_dataset_scenes()/load_dataset_cfg(), and
-pass it to aot_compile_depth.py/run_depth_so.py via --dataset-pt2.
+pass it to aot_compile_depth.py/run_depth_aoti.py via --dataset-pt2.
 """
 
 import argparse

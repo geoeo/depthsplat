@@ -12,6 +12,7 @@ from .matching import warp_with_pose_depth_candidates
 from .utils import mv_feature_add_position
 from .dpt_head import DPTHead
 from .ldm_unet.unet import UNetModel, AttentionBlock
+from src.export_compat import inverse
 from einops import rearrange
 
 
@@ -415,8 +416,10 @@ class MultiViewUniMatch(nn.Module):
 
             # relative pose
             # extrinsics: c2w
+            # export_compat.inverse, not Tensor.inverse: aten.linalg_inv_ex
+            # breaks under AOTInductor on torch 2.6. See src/export_compat.py.
             pose_curr = torch.matmul(
-                tgt_extrinsics.inverse(), ref_extrinsics.unsqueeze(1)
+                inverse(tgt_extrinsics), ref_extrinsics.unsqueeze(1)
             )  # [BV, V-1, 4, 4]
 
             if scale_idx > 0:

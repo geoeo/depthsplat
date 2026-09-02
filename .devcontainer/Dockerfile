@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+FROM nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -33,8 +33,18 @@ RUN curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_6
 RUN conda create -y -n depthsplat python=3.10 \
 	&& conda clean -afy
 
+# torch/torchvision/xformers come from the cu126 index, never PyPI. Only the
+# cu126 wheels are built with _GLIBCXX_USE_CXX11_ABI=1 (manylinux_2_28); the
+# PyPI wheels and the cu124 wheels are pre-cxx11, and an AOTInductor .so is
+# ABI-locked to the torch that built it. See .github/agents/pytorch-cxx11-abi.md.
+#
+# --index-url, not --extra-index-url: PyPI publishes an identically named
+# xformers-0.0.29.post3-cp310-cp310-manylinux_2_28_x86_64.whl built with the
+# opposite ABI, and pip would be free to pick it.
 RUN conda run -n depthsplat pip install --no-cache-dir --upgrade pip \
-	&& conda run -n depthsplat pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu124
+	&& conda run -n depthsplat pip install --no-cache-dir \
+		torch==2.6.0 torchvision==0.21.0 xformers==0.0.29.post3 \
+		--index-url https://download.pytorch.org/whl/cu126
 
 COPY host_groups /
 

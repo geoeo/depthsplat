@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile the depth predictor to a native .so with AOTInductor.
+"""Compile the depth predictor to a self-contained AOTInductor .pt2 package.
 
     python scripts/aot_compile_depth.py \
         --dataset realm_1_with_depth --offset 70 --count 3
@@ -11,48 +11,66 @@ Scene selection matches scripts/realm_triplet_depth.py; the triplet is generated
 from custom/<dataset>/ on each run and its first scene becomes the tracing
 example.
 
-Each build gets its own directory, because the .so is NOT self-contained: it
-loads ~108 generated Triton kernels from separate .cubin files at runtime.
+This uses the stable two-step export workflow, as of torch 2.6:
 
-Those paths are ABSOLUTE and fixed at compile time. They can be overridden, but
-only through an argument the Python loader does not expose:
+    ep      = torch.export.export(model, inputs)
+    package = torch._inductor.aoti_compile_and_package(ep, package_path=...)
 
-  * torch._export.aot_load(so, device) does NOT pass a cubin_dir, so from Python
-    the build needs the original compile-time directory to still exist. If it
-    does not, inference fails with an opaque `run_func_ ... API call failed` --
-    on the first *inference*, not on load, so a smoke test that merely
-    constructs the runner will pass.
-  * The C++ runner takes a cubin_dir: AOTIModelContainerRunnerCuda(so, 1,
-    device, cubin_dir). The generated loadKernel() then keeps only the filename
-    from each baked path and joins it to cubin_dir, so a relocated build works.
-    Verified: a build copied to /tmp runs with the compile-time path deleted.
+superseding torch._export.aot_compile(). That call still exists in 2.6 but
+prints a deprecation banner, and what it produced was a bare .so that loaded its
+generated Triton kernels from separate .cubin files by ABSOLUTE path, fixed at
+compile time. A build was therefore only usable from Python at the exact
+directory it was compiled into -- and it failed on the first *inference* rather
+than at load, so a smoke test that merely constructed the runner would pass.
+C++ could relocate such a build only by passing a cubin_dir to the runner.
 
-So for C++ deployment the directory is relocatable as long as the runtime passes
-cubin_dir. For the Python scripts here, deploy to the compiled path or compile
-with --output-dir set to where it will live.
+The .pt2 package removes all of that: the compiled .so and every .cubin live
+inside one zip archive, which the loader unpacks to a temporary directory. The
+package is a single self-contained file -- copy it anywhere.
+
+    Python: torch._inductor.aoti_load_package(path)
+    C++:    torch::inductor::AOTIModelPackageLoader loader(path);
+            loader.run(inputs);
+
+A package is still locked to the torch that built it, so it must be recompiled
+after a torch upgrade. build_info.json records the version and
+run_depth_aoti.py reports a mismatch at startup.
 
 --fp32 is the load-bearing choice. It is baked into the generated kernels, and
-the runtime must be set to match (run_depth_so.py --fp32); the setting is
-recorded in build_info.json so a mismatch can be caught. Measured on a 3-view
-480x640 scene, RTX 3060:
+the runtime must be set to match (run_depth_aoti.py --fp32); the setting is
+recorded in build_info.json so a mismatch can be caught.
 
-    --fp32 on  (default)  515 ms   agrees with fp32 eager to ~8.7e-04 m
-    --fp32 off (TF32)     391 ms   differs from eager by ~6.5 m max / 0.48 m mean
+                         package    eager   package vs eager, same precision
+    --fp32 on (default)   160 ms   177 ms   6.8e-03 m max, 2.1e-04 m mean
+    --fp32 off (TF32)     123 ms   155 ms   2.68 m max, 3.2e-02 m mean
 
-The TF32 gap is not a broken graph -- pinned to fp32 the same build agrees with
-eager to fp32 rounding. Inductor simply selects different kernels than eager,
-and the cost-volume regression amplifies that into metres. fp32 is the default
-because it is what reproduces the Python pipeline; choose `off` only when the
-~25% speedup is worth metre-scale disagreement.
+Worst case over the four scenes: 9.2e-03 m for fp32, 2.68 m for TF32.
 
-Step 1 of 2. Takes a few minutes; torch 2.4 uses torch._export.aot_compile.
+The TF32 gap is not a broken graph -- pinned to fp32 the same package agrees
+with eager to fp32 rounding. Inductor simply selects different kernels than
+eager, and the cost-volume regression amplifies that into metres. fp32 is the
+default because it is what reproduces the Python pipeline; choose `off` only
+when the ~23% saving is worth metre-scale disagreement.
+
+Against what src/main.py actually computes, an fp32 package lands within
+5.3e-03 m (mean 2.1e-04 m). That differs from the package-vs-eager figure above
+because the pipeline still calls torch.inverse while the exported graph uses the
+substitution in src/export_compat.py; that substitution accounts for 5.5e-03 m
+max / 3.3e-04 m mean on its own.
+
+Re-measured 2026-09-02 on torch 2.6.0+cu126 / RTX 4070 Ti SUPER, over the
+four 3-view 480x640 scenes in outputs/dataset_cfg.pt2. The figures this
+replaces were taken on torch 2.4.0+cu124 / RTX 3060; both the toolchain and
+the GPU changed, so old and new are not directly comparable.
+
+Step 1 of 2. Takes a few minutes.
 """
 
 import argparse
-import re
 import shutil
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -70,17 +88,14 @@ def main() -> int:
     common.add_precision_arg(parser)
     parser.add_argument("--output-dir", type=Path, default=None,
                         help="build directory, created if absent (default: "
-                             "outputs/aoti/<tf32|fp32>/). Holds the .so and its .cubin "
-                             "files; deploy it as a unit. Absolute paths to this "
-                             "directory are compiled into the .so.")
+                             "outputs/aoti/<tf32|fp32>/). Holds the .pt2 package and "
+                             "its build_info.json; the package alone is enough to run "
+                             "inference and can be copied anywhere.")
     parser.add_argument("--clean", action="store_true",
-                        help="wipe the build directory first (stale .cubin files from "
-                             "an earlier build are otherwise left behind)")
+                        help="wipe the build directory first (also clears the loose "
+                             ".so/.cubin litter left by pre-2.6 builds)")
     parser.add_argument("--skip-check", action="store_true",
-                        help="skip loading the .so and comparing against eager")
-    parser.add_argument("--deployment", action="store_true",
-                        help="strip build intermediates (.o/.cpp) from the build dir, "
-                             "leaving only the .so + .cubin files needed to run inference")
+                        help="skip loading the package and comparing against eager")
     args = parser.parse_args()
     common.validate_scene_selection(args)
 
@@ -91,7 +106,7 @@ def main() -> int:
         shutil.rmtree(build_dir)
         print(f"cleaned {build_dir}")
     build_dir.mkdir(parents=True, exist_ok=True)
-    output = build_dir / f"depth_predictor_{variant}.so"
+    output = build_dir / f"depth_predictor_{variant}.pt2"
 
     common.apply_precision(args)
 
@@ -103,82 +118,64 @@ def main() -> int:
     print(f"  eager depth {tuple(reference.shape)} "
           f"range=[{reference.min():.3f}, {reference.max():.3f}] m")
 
-    print(f"compiling -> {build_dir}/ (several minutes) ...")
+    print("exporting the graph ...")
+    with torch.no_grad():
+        exported = torch.export.export(model, inputs)
+    print(f"  {len(list(exported.graph.nodes))} graph nodes")
+
+    print(f"compiling -> {output} (several minutes) ...")
     started = time.time()
     with torch.no_grad():
-        so_path = torch._export.aot_compile(
-            model, inputs, options={"aot_inductor.output_path": str(output)},
-        )
+        package = Path(torch._inductor.aoti_compile_and_package(
+            exported, package_path=str(output),
+        ))
     print(f"  compiled in {time.time() - started:.0f}s "
-          f"({Path(so_path).stat().st_size / 2**20:.0f} MiB)")
+          f"({package.stat().st_size / 2**20:.0f} MiB)")
 
     if not args.skip_check:
-        runner = torch._export.aot_load(str(so_path), args.device)
+        runner = torch._inductor.aoti_load_package(str(package))
         with torch.no_grad():
             got = runner(*inputs)
         got = got[0] if isinstance(got, (list, tuple)) else got
         diff = (got - reference).abs()
         rel = diff / reference.abs().clamp(min=1e-6)
-        print(f"  .so vs eager: maxabs={diff.max():.3e} m maxrel={rel.max():.3e} "
+        print(f"  package vs eager: maxabs={diff.max():.3e} m maxrel={rel.max():.3e} "
               f"mean={diff.mean():.3e} m")
         if not fp32 and diff.max() > 1e-2:
             print("  (expected under --fp32 off; rebuild with --fp32 on to compare "
                   "against eager at fp32 rounding)")
 
     common.write_manifest(build_dir, fp32, output.name)
-    if args.deployment:
-        strip_build_intermediates(build_dir)
-    audit(Path(so_path), build_dir)
+    audit(package)
 
     print(f"\nbuild directory: {build_dir}")
-    print(f"run it with: python scripts/run_depth_so.py --so {so_path} "
+    print(f"run it with: python scripts/run_depth_aoti.py --package {package} "
           f"--fp32 {args.fp32}")
     return 0
 
 
-def strip_build_intermediates(build_dir: Path) -> None:
-    """Delete .o/.cpp under build_dir -- needed only to build, not to run inference."""
-    leftovers = sorted(build_dir.glob("*.o")) + sorted(build_dir.glob("*.cpp"))
-    for f in leftovers:
-        f.unlink()
-    if leftovers:
-        print(f"  --deployment: removed {len(leftovers)} build intermediate(s) (.o/.cpp)")
+def audit(package: Path) -> None:
+    """Report what the .pt2 package contains, by file type.
 
-
-def audit(so_path: Path, build_dir: Path) -> None:
-    """Report the .so's runtime dependency on its .cubin files.
-
-    The .so calls cuModuleLoad on absolute paths fixed at compile time, so a build
-    is only portable if it stays at the path it was compiled for.
+    Everything the runtime needs is inside the archive -- the compiled .so and the
+    generated .cubin kernels -- and nothing is referenced by an absolute path, so
+    the package is relocatable. This just makes the contents visible.
     """
-    cubins = sorted(build_dir.glob("*.cubin"))
-    mib = lambda fs: sum(f.stat().st_size for f in fs) / 2**20
-    print(f"  {len(cubins)} .cubin kernels alongside the .so ({mib(cubins):.1f} MiB)")
+    with zipfile.ZipFile(package) as archive:
+        entries = [e for e in archive.infolist() if not e.is_dir()]
 
-    # .o/.cpp are build intermediates -- the generated source is handy for the C++
-    # integration, but neither is needed at runtime.
-    leftovers = sorted(build_dir.glob("*.o")) + sorted(build_dir.glob("*.cpp"))
-    runtime = mib([so_path]) + mib(cubins)
-    print(f"  deployable: .so + .cubin = {runtime:.0f} MiB")
-    if leftovers:
-        print(f"  build intermediates (not needed at runtime): "
-              f"{len(leftovers)} files, {mib(leftovers):.0f} MiB")
+    mib = lambda items: sum(i.file_size for i in items) / 2**20
+    by_ext: dict[str, list[zipfile.ZipInfo]] = {}
+    for entry in entries:
+        by_ext.setdefault(Path(entry.filename).suffix or "(none)", []).append(entry)
 
-    refs = {Path(m.decode()) for m in
-            re.findall(rb"/[ -~]{1,240}?\.cubin", so_path.read_bytes())}
-    outside = sorted(r for r in refs if r.parent != build_dir)
-    missing = sorted(r for r in refs if not r.is_file())
-    print(f"  {len(refs)} cubin paths baked into the .so")
-    if outside:
-        print(f"  WARNING: {len(outside)} reference a directory other than the build "
-              f"dir, e.g. {outside[0]}")
-    if missing:
-        print(f"  WARNING: {len(missing)} baked paths do not exist, e.g. {missing[0]}")
-    if not outside and not missing:
-        print(f"  all baked paths resolve inside the build dir")
-        print(f"  NOTE: baked paths are absolute. Python's aot_load has no cubin_dir "
-              f"argument, so from Python this build needs {build_dir} to exist; "
-              f"C++ can relocate it by passing cubin_dir to the runner.")
+    print(f"  {len(entries)} entries, {mib(entries):.0f} MiB uncompressed:")
+    for ext, items in sorted(by_ext.items(), key=lambda kv: -mib(kv[1])):
+        print(f"    {len(items):>4} {ext:<8} {mib(items):>8.1f} MiB")
+    if not by_ext.get(".so"):
+        print("  WARNING: no .so inside the package")
+    print(f"  self-contained: the .cubin kernels ship inside the archive, so the "
+          f"package needs no sibling files and can be copied anywhere")
 
 
 if __name__ == "__main__":

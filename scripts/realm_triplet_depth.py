@@ -258,8 +258,8 @@ def main() -> int:
         choices=["on", "off"],
         default="on",
         help="on (default): full fp32, so the depth maps written here can be used as "
-        "a numerical reference for a compiled AOTInductor build. off: allow TF32, "
-        "~19%% faster but ~1.3 m different. See src/precision.py.",
+        "a numerical reference for a compiled AOTInductor package. off: allow TF32, "
+        "~13%% faster but ~2.9 m different. See src/precision.py.",
     )
     parser.add_argument(
         "--xformers",

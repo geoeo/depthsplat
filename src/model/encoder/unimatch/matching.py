@@ -1,6 +1,8 @@
 import torch
 import torch.nn.functional as F
 
+from src.export_compat import inverse
+
 
 def coords_grid(b, h, w, homogeneous=False, device=None):
     y, x = torch.meshgrid(torch.arange(h), torch.arange(w))  # [H, W]
@@ -49,7 +51,9 @@ def warp_with_pose_depth_candidates(
             b, h, w, homogeneous=True, device=depth.device
         )  # [B, 3, H, W]
         # back project to 3D and transform viewpoint
-        points = torch.inverse(intrinsics).bmm(grid.view(b, 3, -1))  # [B, 3, H*W]
+        # export_compat.inverse, not torch.inverse: aten.linalg_inv_ex breaks
+        # under AOTInductor on torch 2.6. See src/export_compat.py.
+        points = inverse(intrinsics).bmm(grid.view(b, 3, -1))  # [B, 3, H*W]
         points = torch.bmm(pose[:, :3, :3], points).unsqueeze(2).repeat(
             1, 1, d, 1
         ) * depth.view(

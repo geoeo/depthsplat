@@ -1,13 +1,18 @@
 """Shared pieces for the depth-model export pipeline.
 
-IMPORTANT: importing this module sets `XFORMERS_DISABLED` and `TYPECHECK_DISABLED`
-before anything under `src` is imported. Both are read at *import* time and both
-must be off for `torch.export()` to work:
+IMPORTANT: importing this module sets `XFORMERS_DISABLED`, `TYPECHECK_DISABLED`
+and `AOTI_SAFE_INVERSE` before anything under `src` is imported. All three are
+read at *import* time and all three are needed for the export/compile path to
+produce a working artifact:
 
   * xformers' `memory_efficient_attention` is an opaque custom op with no ATen
     lowering. The fallback is `scaled_dot_product_attention`, which exports fine.
   * the jaxtyping/beartype import hook rewrites every `forward`, so the tracer
     would capture the beartype wrapper instead of the real function.
+  * `aten.linalg_inv_ex` has no c-shim in torch 2.6, so AOTInductor routes
+    `torch.inverse` through the proxy executor, which mis-deserializes one of its
+    arguments and hands back an undefined tensor. That one fails at *inference*
+    rather than at compile time; see `src/export_compat.py`.
 
 So `import depth_export_common` must come before any `src` import.
 """
@@ -16,6 +21,7 @@ import os
 
 os.environ["XFORMERS_DISABLED"] = "1"
 os.environ["TYPECHECK_DISABLED"] = "1"
+os.environ["AOTI_SAFE_INVERSE"] = "1"
 
 import argparse
 import json
@@ -51,8 +57,8 @@ DEFAULT_ATTN_SPLITS = [2]
 class DepthExport(torch.nn.Module):
     """The deployment signature: tensors in positionally, one depth tensor out.
 
-    AOTInductor on torch 2.4 does not accept keyword arguments, and a flat tensor
-    signature is what the C++ loader wants in any case. Everything non-tensor
+    A flat positional tensor signature is what the C++ loader wants, and it keeps
+    the exported graph's input spec trivial. Everything non-tensor
     (`attn_splits_list`, `nn_matrix`) is baked in as a constant.
 
         depth = model(images, intrinsics, extrinsics, min_depth, max_depth)
@@ -86,11 +92,12 @@ class DepthExport(torch.nn.Module):
 def add_precision_arg(parser: argparse.ArgumentParser) -> None:
     """`--fp32 on|off`, defaulting to full fp32.
 
-    fp32 is the default because it is what reproduces the Python pipeline. Measured
-    against the depth maps the pipeline writes, an fp32 build lands within 1.30 m
-    (mean 0.105 m) and a TF32 build within 6.48 m (mean 0.484 m); once the Python
-    reference is also generated in fp32, the fp32 build matches it to 8.7e-04 m.
-    TF32 buys roughly 25% latency and costs that agreement.
+    fp32 is the default because it is what reproduces the Python pipeline. An fp32
+    package agrees with fp32 eager to 6.8e-03 m max (2.1e-04 m mean), and with the
+    depths src/main.py computes to 5.3e-03 m. A TF32 package disagrees with TF32
+    eager by 2.68 m max (3.2e-02 m mean), and TF32 vs fp32 within eager alone is
+    already 2.87 m max. TF32 saves roughly 23% latency and costs that agreement.
+    See scripts/aot_compile_depth.py for the full table and how it was measured.
     """
     parser.add_argument("--fp32", choices=["on", "off"], default="on",
                         help="on (default): full fp32, matches the Python pipeline "
@@ -106,48 +113,63 @@ def apply_precision(args) -> bool:
     return fp32
 
 
-def manifest_path(so_path: Path) -> Path:
-    return Path(so_path).parent / "build_info.json"
+def manifest_path(package_path: Path) -> Path:
+    return Path(package_path).parent / "build_info.json"
 
 
-def write_manifest(build_dir: Path, fp32: bool, so_name: str) -> None:
-    """Record the precision a build was compiled with, next to the .so."""
+def write_manifest(build_dir: Path, fp32: bool, package_name: str) -> None:
+    """Record how a build was compiled, next to the .pt2 package."""
     (build_dir / "build_info.json").write_text(json.dumps({
         "fp32": fp32,
-        "so": so_name,
+        "package": package_name,
         "torch": torch.__version__,
         "created": datetime.now().isoformat(timespec="seconds"),
     }, indent=2) + "\n")
 
 
-def check_manifest(so_path: Path, fp32: bool) -> None:
-    """Warn if the runtime precision disagrees with what the .so was built with.
+def check_manifest(package_path: Path, fp32: bool) -> None:
+    """Warn if the runtime disagrees with how the package was built.
 
-    The setting is not recorded inside the .so itself, and a mismatch fails
-    silently -- the depths are simply wrong by metres.
+    Two mismatches are worth catching before inference rather than after:
+
+      * precision. Not recorded inside the package, and a mismatch fails
+        silently -- the depths are simply wrong by metres.
+      * torch version. An AOTInductor build is locked to the torch that produced
+        it, both its C++ ABI and its runtime API, so a package compiled under a
+        different version either fails to load or is subtly wrong. See
+        .github/agents/pytorch-cxx11-abi.md.
     """
-    path = manifest_path(so_path)
+    path = manifest_path(package_path)
     if not path.is_file():
-        print(f"  no build_info.json beside the .so; cannot verify that --fp32 "
+        print(f"  no build_info.json beside the package; cannot verify that --fp32 "
               f"{'on' if fp32 else 'off'} matches how it was built")
         return
-    built_fp32 = json.loads(path.read_text())["fp32"]
+    info = json.loads(path.read_text())
+    built_fp32 = info["fp32"]
     if built_fp32 == fp32:
         print(f"  build_info.json: compiled with fp32={'on' if built_fp32 else 'off'} -- matches")
     else:
-        print(f"  *** MISMATCH: .so was compiled with fp32="
+        print(f"  *** MISMATCH: package was compiled with fp32="
               f"{'on' if built_fp32 else 'off'} but running with fp32="
               f"{'on' if fp32 else 'off'}. Depths will be wrong by metres. ***")
+
+    built_torch = info.get("torch")
+    if built_torch and built_torch != torch.__version__:
+        print(f"  *** MISMATCH: package was compiled with torch {built_torch}, "
+              f"running torch {torch.__version__}. An AOTInductor build is not "
+              f"portable across torch versions -- recompile it with "
+              f"aot_compile_depth.py. ***")
 
 
 def set_tf32(enabled: bool) -> None:
     """Delegates to src.precision, so these scripts and the pipeline cannot drift.
 
     This model amplifies TF32 heavily: eager TF32 vs eager full-fp32 differs by
-    ~1.30 m max / 0.105 m mean on a 3-view scene, and an AOTInductor build compiled
-    under TF32 disagrees with eager by ~6.5 m max / 0.48 m mean -- not because the
-    graph is wrong, but because inductor selects different kernels. Pinned to full
-    fp32 the same build agrees to 8.7e-04 m, at roughly 25% more latency.
+    ~2.87 m max / 5.8e-02 m mean on a 3-view scene, and an AOTInductor package
+    compiled under TF32 disagrees with TF32 eager by ~2.68 m max / 3.2e-02 m mean
+    -- not because the graph is wrong, but because inductor selects different
+    kernels. Pinned to full fp32 the same package agrees to 6.8e-03 m, at roughly
+    30% more latency.
 
     Whatever is chosen at compile time must also be set by the runtime.
     """

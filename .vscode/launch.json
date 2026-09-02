@@ -117,7 +117,7 @@
         },
         {
             // Optional: export the depth predictor to a serialised graph for inspection/debugging.
-            // The .so is built separately from the live model; it does not require this .pt2 file.
+            // aot_compile_depth.py re-exports the model itself; it does not consume this .pt2.
             "name": "Export Depth Model (.pt2)",
             "type": "debugpy",
             "python": "/opt/conda/envs/depthsplat/bin/python",
@@ -137,9 +137,10 @@
             ]
         },
         {
-            // Step 1/2: compile to a native .so. Takes ~2.5 minutes.
-            // fp32 matches the Python pipeline to ~1e-03 m. Writes outputs/aoti/fp32/
-            // plus a build_info.json recording the precision.
+            // Step 1/2: compile to a self-contained AOTInductor .pt2 package.
+            // Takes ~2.5 minutes. fp32 matches the Python pipeline to ~1e-03 m.
+            // Writes outputs/aoti/fp32/ plus a build_info.json recording the
+            // precision and the torch version the package is locked to.
             "name": "AOT Compile Depth: fp32 (default)",
             "type": "debugpy",
             "python": "/opt/conda/envs/depthsplat/bin/python",
@@ -152,9 +153,9 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",
+                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_gt_m.pt2",
                 "--fp32", "on",
-                "--deployment"
+                "--clean"
             ]
         },
         {
@@ -172,22 +173,21 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",
-                "--fp32", "off",
-                "--deployment"
+                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_gt_m.pt2",
+                "--fp32", "off"
             ]
         },
         {
-            // Step 2/2: run the compiled model. --fp32 must match the build;
-            // build_info.json is checked at startup and a mismatch is reported.
-            // The .so bakes absolute paths to its .cubin kernels. Python's
-            // aot_load cannot override them, so this build must stay in the
-            // directory it was compiled into (C++ can pass a cubin_dir instead).
-            "name": "Run Depth .so: fp32 (default)",
+            // Step 2/2: run the compiled package. --fp32 must match the build;
+            // build_info.json is checked at startup and a mismatch is reported,
+            // as is a torch version other than the one that compiled it.
+            // The package bundles its .cubin kernels, so it is a single file and
+            // can live anywhere -- no cubin_dir, no sibling files.
+            "name": "Run Depth Package: fp32 (default)",
             "type": "debugpy",
             "python": "/opt/conda/envs/depthsplat/bin/python",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/run_depth_so.py",
+            "program": "${workspaceFolder}/scripts/run_depth_aoti.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "cwd": "${workspaceFolder}",
@@ -195,24 +195,22 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--so", "${workspaceFolder}/outputs/aoti/fp32/depth_predictor_fp32.so",
-                "--dataset", "realm_1_with_depth",
-                "--offset", "80",
-                "--count", "3",
+                "--package", "${workspaceFolder}/outputs/aoti/fp32/depth_predictor_fp32.pt2",
                 "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",
                 "--benchmark", "--iters", "8",
                 "--compare-eager",
+                "--save-cam-images",
                 "--output-dir", "${workspaceFolder}/outputs/so_depths"
             ]
         },
         {
             // Step 2/2, TF32 variant. Expect a ~6 m gap against eager -- that is the
             // TF32 kernel divergence, not a broken build.
-            "name": "Run Depth .so: tf32 (fast)",
+            "name": "Run Depth Package: tf32 (fast)",
             "type": "debugpy",
             "python": "/opt/conda/envs/depthsplat/bin/python",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/run_depth_so.py",
+            "program": "${workspaceFolder}/scripts/run_depth_aoti.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "cwd": "${workspaceFolder}",
@@ -220,7 +218,7 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--so", "${workspaceFolder}/outputs/aoti/tf32/depth_predictor_tf32.so",
+                "--package", "${workspaceFolder}/outputs/aoti/tf32/depth_predictor_tf32.pt2",
                 "--dataset", "realm_1_with_depth",
                 "--offset", "80",
                 "--count", "3",
@@ -228,6 +226,7 @@
                 "--fp32", "off",
                 "--benchmark", "--iters", "8",
                 "--compare-eager",
+                "--save-cam-images",
                 "--output-dir", "${workspaceFolder}/outputs/so_depths"
             ]
         }
