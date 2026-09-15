@@ -243,36 +243,70 @@ def build_config(data_root: Path):
 
 
 def export_dataset_cfg(cfg_dict: DictConfig | dict, output_path: str | Path,
-                        num_views: int | None = None) -> Path:
-    """Serialize cfg_dict plus every staged scene's raw tensors to a .pt2 snapshot.
+                        num_views: int | None = None, device: str = "cuda",
+                        fp32: bool = True) -> Path:
+    """Serialize cfg_dict, every staged scene's raw tensors, and the eager depth
+    the Python model produces for them, to a .pt2 snapshot.
 
-    Embedding the tensors (image, intrinsics, extrinsics, near/far, and
-    ground-truth depth when the scene has any) makes the snapshot self-contained:
-    load_dataset_scenes()/load_dataset_gt_depth() do not re-read dataset.roots off
-    disk, only the cfg_dict's non-tensor settings (image_shape, near, far, ...)
-    are still path-shaped metadata.
+    Embedding the tensors (image, intrinsics, extrinsics, near/far) makes the
+    snapshot self-contained: load_dataset_scenes()/load_dataset_eager_depth() do
+    not re-read dataset.roots off disk; only the cfg_dict's non-tensor settings
+    (image_shape, near, far, ...) are still path-shaped metadata.
+
+    `depth_eager` is the reference a compiled package is scored against: the
+    eager model's own output, not a measurement. It replaces the `depth_gt`
+    field earlier snapshots carried. Those were the custom/<dataset>/dense .npy
+    maps, which are unscaled OpenREALM stereo -- their sibling .txt says
+    "Scaling (Not Georeferenced)" -- and are not multi-view consistent (r~0.03
+    reprojected between neighbouring views, against r~0.87 for the model). They
+    cannot tell a sound build from a broken one, so they are no longer embedded.
+
+    The eager output depends on `fp32`: TF32 eager and full-fp32 eager differ by
+    metres on this model, so the precision is recorded alongside and checked by
+    check_eager_meta() before any comparison.
     """
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = OmegaConf.to_container(cfg_dict, resolve=True)
     scenes = []
     if num_views is not None:
+        model = build_model(cfg_dict, device, num_views)
         for scene, batch in _iter_batches(cfg_dict, num_views):
             ctx = batch["context"]
-            row = {
+            with torch.no_grad():
+                depth_eager = model(
+                    ctx["image"].to(device),
+                    ctx["intrinsics"].to(device),
+                    ctx["extrinsics"].to(device),
+                    (1.0 / ctx["far"]).to(device),
+                    (1.0 / ctx["near"]).to(device),
+                )
+            # [B, V, H, W] -> [V, H, W]; B is 1 here, and dropping it matches the
+            # shape evaluate_depth_aoti.py reduces a package's output to.
+            if depth_eager.ndim == 4:
+                depth_eager = depth_eager[0]
+            depth_eager = depth_eager.detach().cpu()
+            scenes.append({
                 "scene": scene,
                 "images": ctx["image"],
                 "intrinsics": ctx["intrinsics"],
                 "extrinsics": ctx["extrinsics"],
                 "min_depth": (1.0 / ctx["far"]),
                 "max_depth": (1.0 / ctx["near"]),
-            }
-            depth_gt = _load_gt_depth(ctx.get("depth_gt_path"))
-            if depth_gt is not None:
-                row["depth_gt"] = depth_gt
-                print(f"  {scene}: embedding ground-truth depth {tuple(depth_gt.shape)}")
-            scenes.append(row)
-    torch.save({"cfg_dict": payload, "scenes": scenes}, str(path))
+                "depth_eager": depth_eager,
+            })
+            print(f"  {scene}: embedding eager depth {tuple(depth_eager.shape)} "
+                  f"range=[{depth_eager.min():.3f}, {depth_eager.max():.3f}] m")
+    torch.save({
+        "cfg_dict": payload,
+        "scenes": scenes,
+        "eager": {
+            "fp32": fp32,
+            "torch": str(torch.__version__),
+            "num_views": num_views,
+            "created": datetime.now().isoformat(timespec="seconds"),
+        },
+    }, str(path))
     return path
 
 
@@ -291,9 +325,50 @@ def _load_gt_depth(depth_gt_paths) -> torch.Tensor | None:
     return torch.from_numpy(np.stack([np.load(p) for p in paths], axis=0)).float()
 
 
+SNAPSHOT_SAFE_GLOBALS: tuple[type, ...] = ()
+"""Types a snapshot payload may hold beyond tensors and plain containers.
+
+Deliberately empty, and it should stay that way.
+
+A snapshot has to remain readable by libtorch's IValue unpickler, because
+`.github/agents/cpp-inference.md` points a C++ input pipeline at this file as the
+reference for building correct input tensors. That unpickler resolves only a
+fixed set of pickle GLOBALs -- `torch._utils._rebuild_tensor_v2`, the storage
+types, `collections.OrderedDict`. Anything else makes the *whole* file
+unreadable from C++, not just the offending key, because the payload
+deserializes into one IValue.
+
+`torch.__version__` is exactly that trap: it is a `TorchVersion`, not a `str`,
+and storing it directly emits a fourth GLOBAL that libtorch cannot construct.
+Hence the `str()` at the write site in export_dataset_cfg().
+
+Python alone would accept such a type, via
+`torch.serialization.safe_globals(...)`, which is what this tuple feeds. Adding
+to it trades away C++ readability -- so do not, unless that has been given up
+deliberately.
+"""
+
+
+def _load_snapshot(path: str | Path) -> dict:
+    """Read a .pt2 snapshot written by export_dataset_cfg().
+
+    The single entry point for reading these files, so the contract above is
+    stated once instead of being implied by four separate `torch.load` calls.
+
+    torch 2.6's `weights_only=True` default is left in place. Against an empty
+    allowlist it is not merely a security setting: it fails on precisely the
+    types libtorch cannot read, so every Python-side load of a snapshot doubles
+    as a check that the C++ reader could still open it.
+    """
+    if SNAPSHOT_SAFE_GLOBALS:
+        with torch.serialization.safe_globals(list(SNAPSHOT_SAFE_GLOBALS)):
+            return torch.load(str(path), map_location="cpu")
+    return torch.load(str(path), map_location="cpu")
+
+
 def load_dataset_cfg(path: str | Path) -> DictConfig:
     """Load a cfg_dict snapshot produced by export_dataset_cfg()."""
-    payload = torch.load(str(path), map_location="cpu")
+    payload = _load_snapshot(path)
     if isinstance(payload, dict) and "cfg_dict" in payload:
         payload = payload["cfg_dict"]
     return OmegaConf.create(payload)
@@ -301,7 +376,7 @@ def load_dataset_cfg(path: str | Path) -> DictConfig:
 
 def load_dataset_scenes(path: str | Path, device: str = "cpu"):
     """Load the embedded (scene, flat input tuple) pairs saved by export_dataset_cfg()."""
-    payload = torch.load(str(path), map_location="cpu")
+    payload = _load_snapshot(path)
     scenes = payload["scenes"] if isinstance(payload, dict) else []
     for row in scenes:
         yield row["scene"], (
@@ -313,13 +388,50 @@ def load_dataset_scenes(path: str | Path, device: str = "cpu"):
         )
 
 
-def load_dataset_gt_depth(path: str | Path, device: str = "cpu"):
-    """Yield (scene, depth_gt) for every embedded scene; depth_gt is None if absent."""
-    payload = torch.load(str(path), map_location="cpu")
+def load_dataset_eager_depth(path: str | Path, device: str = "cpu"):
+    """Yield (scene, depth_eager) for every embedded scene; None when absent.
+
+    depth_eager is [V, H, W]: what the eager Python model produced for that scene
+    at export time, and what a compiled package is diffed against. Snapshots
+    written before this field existed carry `depth_gt` instead and yield None.
+    """
+    payload = _load_snapshot(path)
     scenes = payload["scenes"] if isinstance(payload, dict) else []
     for row in scenes:
-        depth_gt = row.get("depth_gt")
-        yield row["scene"], depth_gt.to(device) if depth_gt is not None else None
+        depth = row.get("depth_eager")
+        yield row["scene"], depth.to(device) if depth is not None else None
+
+
+def load_dataset_eager_meta(path: str | Path) -> dict:
+    """The precision and torch version the snapshot's depth_eager was produced at."""
+    payload = _load_snapshot(path)
+    return payload.get("eager", {}) if isinstance(payload, dict) else {}
+
+
+def check_eager_meta(dataset_path: str | Path, fp32: bool) -> None:
+    """Warn when the snapshot's eager reference was produced at another precision.
+
+    The same silent failure check_manifest() guards for the package: nothing in
+    the stored tensor says which precision produced it, and TF32 eager differs
+    from full-fp32 eager by metres on this model -- a mismatch here reads as a
+    broken compile when it is only a rounding-mode difference.
+    """
+    meta = load_dataset_eager_meta(dataset_path)
+    if not meta:
+        print("  snapshot carries no eager metadata; cannot verify the reference "
+              "precision (it predates depth_eager -- re-export it)")
+        return
+    if meta.get("fp32") == fp32:
+        print(f"  snapshot eager reference: fp32={'on' if fp32 else 'off'} -- matches")
+    else:
+        print(f"  *** MISMATCH: snapshot's eager reference was produced with fp32="
+              f"{'on' if meta.get('fp32') else 'off'} but running with fp32="
+              f"{'on' if fp32 else 'off'}. The diff will be precision noise in "
+              f"metres, not a compile error. ***")
+    made_with = meta.get("torch")
+    if made_with and made_with != torch.__version__:
+        print(f"  note: eager reference came from torch {made_with}, "
+              f"running torch {torch.__version__}")
 
 
 def build_config_for_args(args):
