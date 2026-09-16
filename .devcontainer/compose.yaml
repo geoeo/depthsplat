@@ -9,6 +9,9 @@ services:
       - type: bind
         source: ..
         target: /workspaces
+      - type: bind
+        source: /home/haubenstock/data/situationmap_data_mount
+        target: /workspaces/custom
     privileged: true
     network_mode: host
     ipc: host
