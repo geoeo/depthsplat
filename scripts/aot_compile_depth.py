@@ -85,6 +85,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     common.add_common_args(parser)
+    common.add_model_args(parser)
     common.add_precision_arg(parser)
     parser.add_argument("--output-dir", type=Path, default=None,
                         help="build directory, created if absent (default: "

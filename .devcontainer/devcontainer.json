@@ -31,7 +31,14 @@
 	"mounts": [
 		"source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind"
 	],
-	
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"anthropic.claude-code",
+				"ms-python.debugpy"
+			]
+		}
+	},
 	"remoteEnv": {
 		"DISPLAY": "${localEnv:DISPLAY}",
 		"WAYLAND_DISPLAY": "${localEnv:WAYLAND_DISPLAY}",

@@ -131,6 +131,8 @@
             },
             "args": [
                 "--dataset", "realm_1_with_depth",
+                "--backbone", "vitb",
+                "--checkpoint", "pretrained/depthsplat-depth-base-352x640-randview2-8-65a892c5.pth",
                 "--offset", "80",
                 "--count", "3",
                 "--output", "${workspaceFolder}/outputs/depth_predictor.pt2"

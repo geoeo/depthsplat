@@ -10,7 +10,7 @@ services:
         source: ..
         target: /workspaces
       - type: bind
-        source: /home/haubenstock/data/situationmap_data_mount
+        source: /home/haubenstock/data/situation_map_data_mount
         target: /workspaces/custom
     privileged: true
     network_mode: host

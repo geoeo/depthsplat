@@ -35,6 +35,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     common.add_common_args(parser)
+    common.add_model_args(parser)
     common.add_precision_arg(parser)
     parser.add_argument("--output", type=Path,
                         default=common.REPO_ROOT / "outputs" / "dataset_cfg.pt2",
@@ -47,7 +48,7 @@ def main() -> int:
     fp32 = common.apply_precision(args)
 
     common.prepare_scenes(args)
-    cfg_dict = common.build_config(args.data_root)
+    cfg_dict = common.build_config_for_args(args)
     saved = common.export_dataset_cfg(cfg_dict, args.output, num_views=args.num_views,
                                       device=args.device, fp32=fp32)
     size_mb = saved.stat().st_size / 2**20

@@ -37,7 +37,11 @@ from omegaconf import DictConfig, OmegaConf
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.depth_inference import compose_config, depth_inference_overrides  # noqa: E402
+from src.depth_inference import (  # noqa: E402
+    DEFAULT_PRETRAINED_DEPTH,
+    compose_config,
+    depth_inference_overrides,
+)
 from src.config import load_typed_root_config  # noqa: E402
 from src.global_cfg import set_cfg  # noqa: E402
 from src.misc.step_tracker import StepTracker  # noqa: E402
@@ -200,6 +204,17 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
                              "factorises the batch dim by it.")
 
 
+def add_model_args(parser: argparse.ArgumentParser) -> None:
+    """Depth-model architecture and trained-checkpoint selection."""
+    parser.add_argument("--backbone", choices=["vits", "vitb"], default="vitb",
+                    help="DINOv2 monodepth backbone (default: vitb). ViT-L export "
+                        "is not supported.")
+    parser.add_argument("--checkpoint", type=Path,
+                    default=Path(DEFAULT_PRETRAINED_DEPTH),
+                    help="matching trained depth-predictor checkpoint (default: "
+                        f"{DEFAULT_PRETRAINED_DEPTH}).")
+
+
 def validate_scene_selection(args):
     """Require some scene selection, unless a dataset snapshot already fixes it."""
     if getattr(args, "dataset_pt2", None) is not None:
@@ -229,8 +244,14 @@ def prepare_scenes(args):
     return rows
 
 
-def build_config(data_root: Path):
+def build_config(data_root: Path, backbone: str | None = None,
+                 checkpoint: Path | None = None):
     dataset_cfg = yaml.safe_load(DATASET_CFG_PATH.read_text())
+    model_overrides = {}
+    if backbone is not None:
+        model_overrides["vit_type"] = backbone
+    if checkpoint is not None:
+        model_overrides["pretrained_depth"] = str(checkpoint)
     return compose_config(
         depth_inference_overrides(
             dataset_root=data_root.resolve().relative_to(REPO_ROOT),
@@ -238,6 +259,7 @@ def build_config(data_root: Path):
             image_shape=tuple(dataset_cfg["image_shape"]),
             near=dataset_cfg["near"],
             far=dataset_cfg["far"],
+            **model_overrides,
         )
     )
 
@@ -437,19 +459,32 @@ def check_eager_meta(dataset_path: str | Path, fp32: bool) -> None:
 def build_config_for_args(args):
     """Return the active cfg_dict, preferring a dataset snapshot when supplied."""
     dataset_pt2 = getattr(args, "dataset_pt2", None)
+    backbone = getattr(args, "backbone", None)
+    checkpoint = getattr(args, "checkpoint", None)
     if dataset_pt2 is not None:
         if not dataset_pt2.is_file():
             raise SystemExit(f"no such dataset snapshot: {dataset_pt2}")
         print(f"loading dataset cfg from {dataset_pt2}")
-        return load_dataset_cfg(dataset_pt2)
-    return build_config(args.data_root)
+        cfg_dict = load_dataset_cfg(dataset_pt2)
+        if backbone is not None:
+            cfg_dict.model.encoder.monodepth_vit_type = backbone
+        if checkpoint is not None:
+            cfg_dict.checkpointing.pretrained_depth = str(checkpoint)
+        return cfg_dict
+    return build_config(args.data_root, backbone, checkpoint)
 
 
 def build_model(cfg_dict, device: str, num_views: int) -> DepthExport:
     """Build the depth predictor, load pretrained weights, freeze V, wrap it."""
     cfg = load_typed_root_config(cfg_dict)
+    if cfg.model.encoder.monodepth_vit_type == "vitl":
+        raise SystemExit(
+            "ViT-L export is not supported: no complete ViT-L DepthSplat depth "
+            "checkpoint is available, and the training initializer is not exportable."
+        )
     set_cfg(cfg_dict)
     encoder, _ = get_encoder(cfg.model.encoder)
+    print(f"  monodepth backbone: {cfg.model.encoder.monodepth_vit_type}")
 
     ckpt = cfg.checkpointing.pretrained_depth
     state = torch.load(ckpt, map_location="cpu")["model"]

@@ -49,6 +49,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     common.add_common_args(parser)
+    common.add_model_args(parser)
     parser.add_argument("--output", type=Path,
                         default=common.REPO_ROOT / "outputs" / "depth_predictor.pt2",
                         help="destination .pt2 (torch.export convention; a .pt "
