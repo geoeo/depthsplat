@@ -22,7 +22,7 @@ import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PIL import Image
 
-DEFAULT_DIR = Path("/workspaces/outputs/so_depths_m")
+DEFAULT_DIR = Path("/workspaces/outputs/depthsplat-depth-base-realm_1_s")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__,
@@ -104,13 +104,10 @@ def main():
         f"Using scale={args.scale}. Press Enter to advance, Ctrl+C to quit."
     )
 
-    num_cols = 4 if args.display_eager else 3
-    fig, axes = plt.subplots(1, num_cols, figsize=(6 * num_cols, 5))
-    fig.subplots_adjust(left=0.04, right=0.95, wspace=0.45)
     plt.ion()
-    # One divider axis per image axis, so panels stay identically proportioned
-    # whether or not their colorbar is shown.
-    caxes = [make_axes_locatable(ax).append_axes("right", size="5%", pad=0.05) for ax in axes]
+    fig = None
+    axes = []
+    caxes = []
 
     for path in npy_files:
         array = np.load(path) * args.scale
@@ -135,6 +132,15 @@ def main():
                 panels.append((gt, f"{title} (gt)", "plasma", True))
             if eager is not None and eager.shape == depth.shape:
                 panels.append((eager, f"{title} (eager)", "plasma", True))
+
+            if len(axes) != len(panels):
+                if fig is not None:
+                    plt.close(fig)
+                fig, subplot_axes = plt.subplots(1, len(panels), figsize=(6 * len(panels), 5))
+                fig.subplots_adjust(left=0.04, right=0.95, wspace=0.45)
+                axes = np.atleast_1d(subplot_axes).tolist()
+                # One divider axis per image axis keeps panels identically proportioned.
+                caxes = [make_axes_locatable(ax).append_axes("right", size="5%", pad=0.05) for ax in axes]
 
             for ax, cax in zip(axes, caxes):
                 ax.clear()

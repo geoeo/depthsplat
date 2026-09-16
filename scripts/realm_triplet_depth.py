@@ -247,7 +247,7 @@ def main() -> int:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--indices", help="Flat index list relative to --offset, e.g. '[0,1,2,3,4,5]'")
     source.add_argument("--count", type=int, help="Use consecutive indices range(count); must be a multiple of 3")
-    parser.add_argument("--dataset", default="realm_1", choices=["realm_1", "realm_2", "realm_1_with_depth"])
+    parser.add_argument("--dataset", default="realm_1", choices=["realm_1","realm_1_s" , "realm_2", "realm_1_with_depth"])
     parser.add_argument("--offset", type=int, default=0, help="Index of the first frame; indices are relative to it")
     parser.add_argument("--scale", type=float, default=1.0, help="Divide translations by this factor")
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
