@@ -110,9 +110,9 @@
             },
             "args": [
                 "--dataset", "realm_1_with_depth",
-                "--offset", "80",
-                "--count", "12",
-                "--output", "${workspaceFolder}/outputs/dataset_cfg_with_gt_m.pt2"
+                "--offset", "90",
+                "--count", "3",
+                "--output", "${workspaceFolder}/outputs/dataset_cfg_eager_s.pt2"
             ]
         },
         {
