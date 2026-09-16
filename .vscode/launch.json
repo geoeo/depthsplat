@@ -76,7 +76,7 @@
             ]
         },
         {
-            "name": "Realm Triplet Depth: realm_1",
+            "name": "Realm Triplet Depth",
             "type": "debugpy",
             "python": "/opt/conda/envs/depthsplat/bin/python",
             "request": "launch",
@@ -88,10 +88,11 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset", "realm_1",
-                "--offset", "70",
-                "--indices", "[0,1,2,3,4,5,4,5,6]",
-                "--scale", "1.0"
+                "--dataset", "realm_1_s",
+                "--offset", "0",
+                "--indices", "[0,1,2]",
+                "--scale", "1.0",   
+                "--output", "${workspaceFolder}/outputs/depthsplat-depth-base-realm_1_s"
             ]
         },
         {
