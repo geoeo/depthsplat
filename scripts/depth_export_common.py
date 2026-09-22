@@ -276,8 +276,8 @@ def export_dataset_cfg(cfg_dict: DictConfig | dict, output_path: str | Path,
     (image_shape, near, far, ...) are still path-shaped metadata.
 
     `depth_eager` is the reference a compiled package is scored against: the
-    eager model's own output, not a measurement. It replaces the `depth_gt`
-    field earlier snapshots carried. Those were the custom/<dataset>/dense .npy
+    eager model's own output, not a measurement. It replaces the external depth
+    reference field earlier snapshots carried. Those were the custom/<dataset>/dense .npy
     maps, which are unscaled OpenREALM stereo -- their sibling .txt says
     "Scaling (Not Georeferenced)" -- and are not multi-view consistent (r~0.03
     reprojected between neighbouring views, against r~0.87 for the model). They
@@ -332,16 +332,19 @@ def export_dataset_cfg(cfg_dict: DictConfig | dict, output_path: str | Path,
     return path
 
 
-def _load_gt_depth(depth_gt_paths) -> torch.Tensor | None:
-    """Stack per-view ground-truth depth .npy files into [V, H, W], or None if absent.
+def _load_reference_depth(depth_reference_paths) -> torch.Tensor | None:
+    """Stack per-view reference depth .npy files into [V, H, W], or None if absent.
 
-    `depth_gt_paths` is a list of V entries, each collated to a batch-size-1 list
-    by the dataloader ("" when a view has no ground truth); mirrors how
+    `depth_reference_paths` is a list of V entries, each collated to a batch-size-1
+    list by the dataloader ("" when a view has no reference); mirrors how
     model_wrapper.py reads the same field.
     """
-    if depth_gt_paths is None:
+    if depth_reference_paths is None:
         return None
-    paths = [p[0] if isinstance(p, (list, tuple)) else p for p in depth_gt_paths]
+    paths = [
+        path[0] if isinstance(path, (list, tuple)) else path
+        for path in depth_reference_paths
+    ]
     if not paths or not all(p and Path(p).is_file() for p in paths):
         return None
     return torch.from_numpy(np.stack([np.load(p) for p in paths], axis=0)).float()
@@ -415,7 +418,8 @@ def load_dataset_eager_depth(path: str | Path, device: str = "cpu"):
 
     depth_eager is [V, H, W]: what the eager Python model produced for that scene
     at export time, and what a compiled package is diffed against. Snapshots
-    written before this field existed carry `depth_gt` instead and yield None.
+    written before this field existed carry an external depth reference instead
+    and yield None.
     """
     payload = _load_snapshot(path)
     scenes = payload["scenes"] if isinstance(payload, dict) else []
@@ -516,21 +520,21 @@ def iter_inputs(cfg_dict, device: str, num_views: int):
         )
 
 
-def iter_inputs_with_gt(cfg_dict, device: str, num_views: int):
-    """Yield (scene_name, flat input tuple, depth_gt) for every staged scene.
+def iter_inputs_with_reference(cfg_dict, device: str, num_views: int):
+    """Yield (scene_name, flat input tuple, depth_reference) for every staged scene.
 
-    depth_gt is a [V, H, W] tensor on `device`, or None for scenes without any.
+    depth_reference is a [V, H, W] tensor on `device`, or None when unavailable.
     """
     for scene, batch in _iter_batches(cfg_dict, num_views):
         ctx = batch["context"]
-        depth_gt = _load_gt_depth(ctx.get("depth_gt_path"))
+        depth_reference = _load_reference_depth(ctx.get("depth_reference_path"))
         yield scene, (
             ctx["image"].to(device),
             ctx["intrinsics"].to(device),
             ctx["extrinsics"].to(device),
             (1.0 / ctx["far"]).to(device),
             (1.0 / ctx["near"]).to(device),
-        ), depth_gt.to(device) if depth_gt is not None else None
+        ), depth_reference.to(device) if depth_reference is not None else None
 
 
 def _iter_batches(cfg_dict, num_views: int):

@@ -4,12 +4,12 @@
 Handles both layouts this repo produces:
 
   * the pipeline (realm_triplet_depth.py) writes one 2-D [H, W] file per view,
-    at <out>/images/<scene>/depth/000000.npy, alongside 000000_gt.npy and
+    at <out>/images/<scene>/depth/000000.npy, alongside 000000_reference.npy and
     000000_cam.png;
   * run_depth_aoti.py writes one file per scene, <out>/<scene>.npy, holding the
-    whole batch as [B, V, H, W] with no ground truth or camera image.
+    whole batch as [B, V, H, W] with no reference depth or camera image.
 
-Ground truth, the eager-mode depth, and the camera image are shown when they are
+Reference depth, the eager-mode depth, and the camera image are shown when they are
 found next to the depth file, and simply omitted when they are not -- a
 scene-level file from run_depth_aoti.py renders as a single depth panel.
 """
@@ -22,7 +22,7 @@ import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PIL import Image
 
-DEFAULT_DIR = Path("/workspaces/outputs/depthsplat-depth-base-realm_1_s")
+DEFAULT_DIR = Path("/workspaces/outputs/depthsplat-realm_1_100m_w_tandem")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__,
@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def find_depth_files(root: Path) -> list[Path]:
-    """Every depth .npy under `root`, in either layout, ground truth/eager excluded.
+    """Every depth .npy under `root`, in either layout, reference/eager excluded.
 
     run_depth_aoti.py also writes a sibling `..._eager.npy` per view; without excluding
     it here it gets treated as its own primary file, whose `..._eager_cam.png`
@@ -56,12 +56,12 @@ def find_depth_files(root: Path) -> list[Path]:
     """
     return sorted(
         p for p in root.rglob("*.npy")
-        if not p.stem.endswith("_gt") and not p.stem.endswith("_eager")
+        if not p.stem.endswith("_reference") and not p.stem.endswith("_eager")
     )
 
 
 def format_range(data: np.ndarray) -> str:
-    """min/max ignoring NaN, which the ground-truth maps use for holes."""
+    """min/max ignoring NaN, which the reference maps use for holes."""
     if not np.isfinite(data).any():
         return "all NaN"
     return f"min={np.nanmin(data):.2f}m  max={np.nanmax(data):.2f}m"
@@ -112,8 +112,8 @@ def main():
     for path in npy_files:
         array = np.load(path) * args.scale
         # Siblings exist only in the pipeline layout; absent for scene-level files.
-        gt_path = path.with_name(f"{path.stem}_gt.npy")
-        gt = np.load(gt_path) * args.scale if gt_path.is_file() else None
+        reference_path = path.with_name(f"{path.stem}_reference.npy")
+        reference = np.load(reference_path) * args.scale if reference_path.is_file() else None
         eager_path = path.with_name(f"{path.stem}_eager.npy")
         eager = np.load(eager_path) * args.scale if args.display_eager and eager_path.is_file() else None
         rgb_path = path.with_name(f"{path.stem}_cam.png")
@@ -123,13 +123,13 @@ def main():
         base = f"{scene}/{path.name}" if path.parent.name == "depth" else scene
 
         for title, depth in iter_frames(array, base):
-            # Left to right: camera image, depth, ground truth, eager -- each only if present.
+            # Left to right: camera image, depth, reference, eager -- each only if present.
             panels = []
             if rgb is not None:
                 panels.append((rgb, f"{scene}/{rgb_path.name}", None, False))
             panels.append((depth, title, "plasma", True))
-            if gt is not None and gt.shape == depth.shape:
-                panels.append((gt, f"{title} (gt)", "plasma", True))
+            if reference is not None and reference.shape == depth.shape:
+                panels.append((reference, f"{title} (reference)", "plasma", True))
             if eager is not None and eager.shape == depth.shape:
                 panels.append((eager, f"{title} (eager)", "plasma", True))
 
@@ -162,8 +162,8 @@ def main():
             fig.canvas.draw()
             plt.pause(0.01)
             summary = f"[{title}]  {format_range(depth)}"
-            if len(panels) > 1 and gt is not None:
-                summary += f"  | gt {format_range(gt)}"
+            if len(panels) > 1 and reference is not None:
+                summary += f"  | reference {format_range(reference)}"
             if len(panels) > 1 and eager is not None:
                 summary += f"  | eager {format_range(eager)}"
             input(f"{summary} — press Enter for next ")

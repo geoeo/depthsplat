@@ -485,12 +485,12 @@ class ModelWrapper(LightningModule):
 
                 index = batch["context"]["index"][0]
                 frame_ids = batch["context"].get("frame_id")
-                gt_paths = batch["context"].get("depth_gt_path")
+                reference_paths = batch["context"].get("depth_reference_path")
                 if frame_ids is not None:
                     # Collated as [view][batch]; batch size is 1 during testing.
                     frame_ids = [f[0] for f in frame_ids]
-                if gt_paths is not None:
-                    gt_paths = [p[0] for p in gt_paths]
+                if reference_paths is not None:
+                    reference_paths = [path[0] for path in reference_paths]
 
                 if self.test_cfg.save_depth_concat_img:
                     # concat (img0, img1, depth0, depth1)
@@ -519,8 +519,15 @@ class ModelWrapper(LightningModule):
                     )
 
                     if frame_ids is not None:
-                        gt = gt_paths[view] if gt_paths and gt_paths[view] else "none"
-                        print(f"[depth] {scene} {idx:0>6} <- {frame_ids[view]} | gt: {gt}")
+                        reference_path = (
+                            reference_paths[view]
+                            if reference_paths and reference_paths[view]
+                            else "none"
+                        )
+                        print(
+                            f"[depth] {scene} {idx:0>6} <- {frame_ids[view]} "
+                            f"| reference: {reference_path}"
+                        )
 
                     # save depth as npy
                     if self.test_cfg.save_depth_npy:
@@ -530,11 +537,11 @@ class ModelWrapper(LightningModule):
                         os.makedirs(save_dir, exist_ok=True)
                         np.save(save_path, depth_npy)
 
-                        gt_path = gt_paths[view] if gt_paths else ""
-                        if gt_path and os.path.isfile(gt_path):
+                        reference_path = reference_paths[view] if reference_paths else ""
+                        if reference_path and os.path.isfile(reference_path):
                             shutil.copyfile(
-                                gt_path,
-                                path / "images" / scene / "depth" / f"{idx:0>6}_gt.npy",
+                                reference_path,
+                                path / "images" / scene / "depth" / f"{idx:0>6}_reference.npy",
                             )
 
                 if self.test_cfg.save_depth_concat_img:

@@ -12,8 +12,8 @@ pass it to aot_compile_depth.py/run_depth_aoti.py via --dataset-pt2.
 
 Each scene also carries `depth_eager`: the depth the eager Python model produces
 for that scene, stored as [V, H, W]. That is the reference evaluate_depth_aoti.py
-scores a compiled package against. It replaces the `depth_gt` field, which held
-the custom/<dataset>/dense .npy maps -- unscaled OpenREALM stereo that is not
+scores a compiled package against. It replaces the external depth reference,
+which held the custom/<dataset>/dense .npy maps -- unscaled OpenREALM stereo that is not
 multi-view consistent and so cannot distinguish a sound build from a broken one.
 
 Because the model is run here, this script needs the checkpoint and a GPU, and

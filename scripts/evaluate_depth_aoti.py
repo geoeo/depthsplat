@@ -4,7 +4,7 @@
 Example:
     python scripts/evaluate_depth_aoti.py \
         --package outputs/aoti/fp32/depth_predictor_fp32.pt2 \
-        --dataset-pt2 outputs/dataset_cfg_with_gt_s_500.pt2
+        --dataset-pt2 outputs/dataset_cfg_with_reference_s_500.pt2
 
 The reference is `depth_eager`: what the eager Python model produced for the very
 same input tensors, recorded by scripts/export_dataset.py. So the reported
@@ -13,8 +13,8 @@ mean and max absolute, RMSE, and the largest relative deviation. There is no
 scale alignment and no validity mask to apply: both maps come from the same
 model on the same inputs, so every pixel is comparable.
 
-This deliberately does not score against measured ground truth. The
-custom/<dataset>/dense .npy maps that earlier snapshots embedded as `depth_gt`
+This deliberately does not score against the external depth reference. The
+custom/<dataset>/dense .npy maps that earlier snapshots embedded
 are unscaled OpenREALM stereo -- "Scaling (Not Georeferenced)" per their sibling
 .txt -- and reproject between neighbouring views at r~0.03, against r~0.87 for
 the model's own output. Scoring a build against them measures the dataset, not

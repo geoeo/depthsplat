@@ -107,7 +107,9 @@ def main() -> int:
 
     worst = 0.0
     count = 0
-    for scene, inputs, depth_gt in common.iter_inputs_with_gt(cfg_dict, args.device, args.num_views):
+    for scene, inputs, depth_reference in common.iter_inputs_with_reference(
+        cfg_dict, args.device, args.num_views
+    ):
         count += 1
         with torch.no_grad():
             depth = runner(*inputs)
@@ -155,11 +157,11 @@ def main() -> int:
                     image_path = depth_dir / f"{v:0>6}_cam.png"
                     save_image(images[0, v], image_path)
                     print(f"  wrote {image_path}")
-            if depth_gt is not None:
-                for v in range(depth_gt.shape[0]):
-                    gt_path = depth_dir / f"{v:0>6}_gt.npy"
-                    np.save(gt_path, depth_gt[v].cpu().numpy())
-                    print(f"  wrote {gt_path}")
+            if depth_reference is not None:
+                for v in range(depth_reference.shape[0]):
+                    reference_path = depth_dir / f"{v:0>6}_reference.npy"
+                    np.save(reference_path, depth_reference[v].cpu().numpy())
+                    print(f"  wrote {reference_path}")
 
     print(f"\nran {count} scene(s) from {len(rows)} staged triplet(s)")
     if model is not None:

@@ -93,13 +93,13 @@ class DatasetCustomImages(IterableDataset):
         intrinsics = []
         extrinsics = []
         frame_ids = []
-        depth_gt_paths = []
+        depth_reference_paths = []
         cfg_h, cfg_w = self.cfg.image_shape
         for frame in frames:
             image_path = scene_dir / frame["image"]
             # Original capture name/timestamp, so depth outputs can be traced back to a source frame.
             frame_ids.append(str(frame.get("frame_id", Path(frame["image"]).stem)))
-            depth_gt_paths.append(str(frame.get("depth_gt", "")))
+            depth_reference_paths.append(str(frame.get("depth_reference", "")))
             image = Image.open(image_path).convert("RGB")
             if image.size != (cfg_w, cfg_h):  # PIL size is (W, H)
                 image = image.resize((cfg_w, cfg_h), Image.BILINEAR)
@@ -124,7 +124,7 @@ class DatasetCustomImages(IterableDataset):
             torch.stack(extrinsics),
             torch.stack(intrinsics),
             frame_ids,
-            depth_gt_paths,
+            depth_reference_paths,
         )
 
     def _get_bound(self, value: float, num_views: int) -> Tensor:
@@ -156,7 +156,7 @@ class DatasetCustomImages(IterableDataset):
         )
 
         for scene_dir in scene_dirs:
-            scene, images, extrinsics, intrinsics, frame_ids, depth_gt_paths = self._load_scene(scene_dir)
+            scene, images, extrinsics, intrinsics, frame_ids, depth_reference_paths = self._load_scene(scene_dir)
 
             if (get_fov(intrinsics).rad2deg() > self.cfg.max_fov).any():
                 continue
@@ -218,7 +218,9 @@ class DatasetCustomImages(IterableDataset):
                         "far": self._get_bound(self.cfg.far, len(context_indices)),
                         "index": context_indices,
                         "frame_id": [frame_ids[i] for i in context_indices.tolist()],
-                        "depth_gt_path": [depth_gt_paths[i] for i in context_indices.tolist()],
+                        "depth_reference_path": [
+                            depth_reference_paths[i] for i in context_indices.tolist()
+                        ],
                     },
                     "target": {
                         "extrinsics": extrinsics[target_indices],
@@ -228,7 +230,9 @@ class DatasetCustomImages(IterableDataset):
                         "far": self._get_bound(self.cfg.far, len(target_indices)),
                         "index": target_indices,
                         "frame_id": [frame_ids[i] for i in target_indices.tolist()],
-                        "depth_gt_path": [depth_gt_paths[i] for i in target_indices.tolist()],
+                        "depth_reference_path": [
+                            depth_reference_paths[i] for i in target_indices.tolist()
+                        ],
                     },
                     "scene": scene,
                 }

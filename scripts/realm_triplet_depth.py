@@ -93,7 +93,7 @@ from src.depth_inference import compose_config, depth_inference_overrides, run_d
 CUSTOM_ROOT = REPO_ROOT / "custom"
 DEFAULT_DATA_ROOT = REPO_ROOT / "datasets" / "custom_images_triplets"
 DATASET_CFG_PATH = REPO_ROOT / "config" / "dataset" / "custom_images.yaml"
-GT_DEPTH_DIR_NAMES = ("depth", "dense")
+REFERENCE_DEPTH_DIR_NAMES = ("depth", "dense")
 
 
 def parse_indices(raw: str) -> list[int]:
@@ -114,8 +114,8 @@ def se3_inverse(T: np.ndarray) -> np.ndarray:
     return out
 
 
-def find_gt_depth(depth_dir: Path | None, frame_id: str) -> str | None:
-    """Locate a ground-truth depth .npy for `frame_id`, allowing a filename prefix."""
+def find_reference_depth(depth_dir: Path | None, frame_id: str) -> str | None:
+    """Locate a reference depth .npy for `frame_id`, allowing a filename prefix."""
     if depth_dir is None or not depth_dir.is_dir():
         return None
     exact = depth_dir / f"{frame_id}.npy"
@@ -182,9 +182,9 @@ def build_triplet_scene(
             "source_index": src_index,
             "frame_id": frame_id,
         }
-        gt_depth = find_gt_depth(depth_dir, frame_id)
-        if gt_depth is not None:
-            frame["depth_gt"] = gt_depth
+        reference_depth = find_reference_depth(depth_dir, frame_id)
+        if reference_depth is not None:
+            frame["depth_reference"] = reference_depth
         frames.append(frame)
 
     # Loose tolerance: UTM translations are ~1e6, so the relative transform leaves mm-level residuals.
@@ -219,11 +219,17 @@ def preprocess(
     intrinsics = load_intrinsics(source_dir / "intrinsics.txt")
     poses = load_trajectory(source_dir / "kf_traj.txt")
     image_files = sorted((source_dir / "imgs").glob("*.png"))
-    depth_dir = next((source_dir / n for n in GT_DEPTH_DIR_NAMES if (source_dir / n).is_dir()), None)
+    depth_dir = next(
+        (source_dir / name for name in REFERENCE_DEPTH_DIR_NAMES if (source_dir / name).is_dir()),
+        None,
+    )
     if depth_dir is None:
-        print(f"  No ground-truth depth folder in {source_dir} (looked for {'/'.join(GT_DEPTH_DIR_NAMES)})")
+        print(
+            f"  No reference depth folder in {source_dir} "
+            f"(looked for {'/'.join(REFERENCE_DEPTH_DIR_NAMES)})"
+        )
     else:
-        print(f"  Ground-truth depth folder: {depth_dir}")
+        print(f"  Reference depth folder: {depth_dir}")
 
     if (data_root / "test").exists():
         shutil.rmtree(data_root / "test")
@@ -247,7 +253,7 @@ def main() -> int:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--indices", help="Flat index list relative to --offset, e.g. '[0,1,2,3,4,5]'")
     source.add_argument("--count", type=int, help="Use consecutive indices range(count); must be a multiple of 3")
-    parser.add_argument("--dataset", default="realm_1", choices=["realm_1","realm_1_s" , "realm_2", "realm_1_with_depth"])
+    parser.add_argument("--dataset", default="realm_1")
     parser.add_argument("--offset", type=int, default=0, help="Index of the first frame; indices are relative to it")
     parser.add_argument("--scale", type=float, default=1.0, help="Divide translations by this factor")
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
