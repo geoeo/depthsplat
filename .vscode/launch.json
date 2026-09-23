@@ -88,11 +88,11 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset", "realm_1_s",
+                "--dataset", "realm_1_100m_w_tandem",
                 "--offset", "0",
                 "--indices", "[0,1,2]",
                 "--scale", "1.0",   
-                "--output", "${workspaceFolder}/outputs/depthsplat-depth-base-realm_1_s"
+                "--output", "${workspaceFolder}/outputs/depthsplat-realm_1_100m_w_tandem"
             ]
         },
         {
