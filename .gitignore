@@ -166,6 +166,7 @@ datasets/*
 pretrained/*
 !pretrained/.gitkeep
 outputs
+!outputs/.gitkeep
 output
 checkpoints
 custom/*
