@@ -214,15 +214,21 @@ def preprocess(
     data_root: Path,
     scale: float,
     offset: int,
+    reference_depth_dir: Path | None = None,
 ) -> tuple[list[tuple[int, list[int], str]], list[str]]:
     source_dir = CUSTOM_ROOT / dataset
     intrinsics = load_intrinsics(source_dir / "intrinsics.txt")
     poses = load_trajectory(source_dir / "kf_traj.txt")
     image_files = sorted((source_dir / "imgs").glob("*.png"))
-    depth_dir = next(
-        (source_dir / name for name in REFERENCE_DEPTH_DIR_NAMES if (source_dir / name).is_dir()),
-        None,
-    )
+    if reference_depth_dir is not None:
+        if not reference_depth_dir.is_dir():
+            raise FileNotFoundError(f"--reference-depth-dir {reference_depth_dir} is not a directory")
+        depth_dir = reference_depth_dir.resolve()
+    else:
+        depth_dir = next(
+            (source_dir / name for name in REFERENCE_DEPTH_DIR_NAMES if (source_dir / name).is_dir()),
+            None,
+        )
     if depth_dir is None:
         print(
             f"  No reference depth folder in {source_dir} "
@@ -258,6 +264,12 @@ def main() -> int:
     parser.add_argument("--scale", type=float, default=1.0, help="Divide translations by this factor")
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument(
+        "--reference-depth-dir",
+        type=Path,
+        default=None,
+        help="Folder of reference depth .npy files (default: <dataset>/depth or <dataset>/dense)",
+    )
     parser.add_argument("--skip-inference", action="store_true", help="Only run pre-processing")
     parser.add_argument(
         "--fp32",
@@ -287,7 +299,9 @@ def main() -> int:
 
     print_xformers_state("startup")
 
-    rows, warnings = preprocess(args.dataset, indices, args.data_root, args.scale, args.offset)
+    rows, warnings = preprocess(
+        args.dataset, indices, args.data_root, args.scale, args.offset, args.reference_depth_dir
+    )
     for warning in warnings:
         print(f"  WARNING: {warning}")
 

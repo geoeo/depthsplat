@@ -89,10 +89,11 @@
             },
             "args": [
                 "--dataset", "realm_1_100m_w_tandem",
-                "--offset", "0",
+                "--offset", "1",
                 "--indices", "[0,1,2]",
-                "--scale", "1.0",   
-                "--output", "${workspaceFolder}/outputs/depthsplat-realm_1_100m_w_tandem"
+                "--scale", "1.0",
+                "--reference-depth-dir", "${workspaceFolder}/custom/realm_1_100m_w_tandem/gnd_1/densification/dense",
+                "--output", "${workspaceFolder}/outputs/depthsplat-realm_1_100m_w_tandem_reference"
             ]
         },
         {
@@ -156,7 +157,7 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_gt_m.pt2",
+                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_reference_m.pt2",
                 "--fp32", "on",
                 "--clean"
             ]
@@ -176,7 +177,7 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_gt_m.pt2",
+                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_reference_m.pt2",
                 "--fp32", "off"
             ]
         },
