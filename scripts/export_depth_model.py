@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Export the depth predictor to a torch.export ExportedProgram.
 
-    python scripts/export_depth_model.py --dataset realm_1_with_depth \
+    python scripts/export_depth_model.py --dataset realm_2_with_depth \
         --offset 70 --count 3 --output outputs/depth_predictor.pt2
 
 Scene selection matches scripts/realm_triplet_depth.py; the triplet is generated

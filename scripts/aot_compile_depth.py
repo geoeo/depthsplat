@@ -2,9 +2,9 @@
 """Compile the depth predictor to a self-contained AOTInductor .pt2 package.
 
     python scripts/aot_compile_depth.py \
-        --dataset realm_1_with_depth --offset 70 --count 3
+        --dataset realm_2_with_depth --offset 70 --count 3
     python scripts/aot_compile_depth.py --fp32 off \
-        --dataset realm_1_with_depth --offset 70 --count 3 \
+        --dataset realm_2_with_depth --offset 70 --count 3 \
         --output-dir /opt/models/depth
 
 Scene selection matches scripts/realm_triplet_depth.py; the triplet is generated

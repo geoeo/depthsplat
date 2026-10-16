@@ -22,7 +22,7 @@ import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PIL import Image
 
-DEFAULT_DIR = Path("/workspaces/outputs/depthsplat-realm_1_100m_w_tandem")
+DEFAULT_DIR = Path("/workspaces/outputs/depthsplat-realm_2_100m_w_tandem")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__,

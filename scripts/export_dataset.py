@@ -2,7 +2,7 @@
 """Export a dataset cfg_dict, every staged scene's raw tensors, and the eager
 reference depth for those tensors, to a .pt2.
 
-    python scripts/export_dataset.py --dataset realm_1_with_depth \
+    python scripts/export_dataset.py --dataset realm_2_with_depth \
         --offset 70 --count 3 --output outputs/dataset_cfg.pt2
 
 Scene selection matches scripts/realm_triplet_depth.py; the triplet is generated

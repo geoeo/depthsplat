@@ -191,7 +191,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
                         help="Optional snapshot of the cfg_dict produced by the export script; "
                              "if set, it takes precedence over --dataset/--count/--offset")
     parser.add_argument("--dataset", default="realm_1",
-                        choices=["realm_1", "realm_2", "realm_1_with_depth"])
+                        choices=["realm_1", "realm_1_s", "realm_2", "realm_2_with_depth", "realm_2_100m_w_tandem"])
     parser.add_argument("--offset", type=int, default=0,
                         help="Index of the first frame; indices are relative to it")
     parser.add_argument("--scale", type=float, default=1.0,

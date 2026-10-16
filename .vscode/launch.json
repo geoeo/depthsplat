@@ -14,16 +14,15 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "+experiment=re10k",
-                "dataset=custom_images",
+                // +experiment=realm takes image_shape, near and far from
+                // config/dataset/custom_images.yaml (scene-wide). Do not pass
+                // dataset.near/far here: with +experiment=re10k they are reset to 0.5/100.
+                "+experiment=realm",
                 "dataset.roots=[datasets/custom_images]",
                 "dataset.scene_selection=realm_1",
                 "dataset.test_chunk_interval=1",
                 "dataset/view_sampler=realm",
                 "mode=test",
-                "dataset.image_shape=[480,640]",
-                "dataset.near=10.0",
-                "dataset.far=1000.0",
                 "model.encoder.num_scales=2",
                 "model.encoder.upsample_factor=4",
                 "model.encoder.lowest_feature_resolution=8",
@@ -51,16 +50,15 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "+experiment=re10k",
-                "dataset=custom_images",
+                // +experiment=realm takes image_shape, near and far from
+                // config/dataset/custom_images.yaml (scene-wide). Do not pass
+                // dataset.near/far here: with +experiment=re10k they are reset to 0.5/100.
+                "+experiment=realm",
                 "dataset.roots=[datasets/custom_images]",
                 "dataset.scene_selection=realm_2",
                 "dataset.test_chunk_interval=1",
                 "dataset/view_sampler=realm",
                 "mode=test",
-                "dataset.image_shape=[480,640]",
-                "dataset.near=10.0",
-                "dataset.far=1000.0",
                 "model.encoder.num_scales=2",
                 "model.encoder.upsample_factor=4",
                 "model.encoder.lowest_feature_resolution=8",
@@ -88,11 +86,11 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset", "realm_1_100m_w_tandem",
+                "--dataset", "realm_2_100m_w_tandem",
                 "--offset", "0",
                 "--indices", "[0,1,2]",
                 "--scale", "1.0",   
-                "--output", "${workspaceFolder}/outputs/depthsplat-realm_1_100m_w_tandem"
+                "--output", "${workspaceFolder}/outputs/depthsplat-realm_2_100m_w_tandem"
             ]
         },
         {
@@ -110,7 +108,7 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset", "realm_1_with_depth",
+                "--dataset", "realm_2_with_depth",
                 "--offset", "90",
                 "--count", "3",
                 "--output", "${workspaceFolder}/outputs/dataset_cfg_eager_s.pt2"
@@ -131,7 +129,7 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset", "realm_1_with_depth",
+                "--dataset", "realm_2_with_depth",
                 "--backbone", "vitb",
                 "--checkpoint", "pretrained/depthsplat-depth-base-352x640-randview2-8-65a892c5.pth",
                 "--offset", "80",
@@ -222,7 +220,7 @@
             },
             "args": [
                 "--package", "${workspaceFolder}/outputs/aoti/tf32/depth_predictor_tf32.pt2",
-                "--dataset", "realm_1_with_depth",
+                "--dataset", "realm_2_with_depth",
                 "--offset", "80",
                 "--count", "3",
                 "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",

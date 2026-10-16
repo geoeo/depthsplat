@@ -7,10 +7,10 @@ does not depend on a previously populated dataset directory:
 
     python scripts/run_depth_aoti.py \
         --package outputs/aoti/fp32/depth_predictor_fp32.pt2 \
-        --dataset realm_1_with_depth --offset 70 --count 3
+        --dataset realm_2_with_depth --offset 70 --count 3
 
     python scripts/run_depth_aoti.py --package ... \
-        --dataset realm_1_with_depth --offset 70 --indices '[0,1,2,9,10,11]' \
+        --dataset realm_2_with_depth --offset 70 --indices '[0,1,2,9,10,11]' \
         --compare-eager --benchmark
 
 --fp32 defaults to on, matching the default of aot_compile_depth.py. It must
