@@ -202,7 +202,7 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_gt_m.pt2",
+                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_reference_m.pt2",
                 "--fp32", "on",
                 "--clean"
             ]
@@ -222,7 +222,7 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_gt_m.pt2",
+                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_reference_m.pt2",
                 "--fp32", "off"
             ]
         },
