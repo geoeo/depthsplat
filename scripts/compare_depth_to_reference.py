@@ -22,6 +22,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("candidate_dir", type=Path)
     parser.add_argument("reference_dir", type=Path)
+    parser.add_argument("--no-align", action="store_true",
+                        help="Compare in absolute (metric) units instead of fitting a least-squares scale")
     args = parser.parse_args()
 
     cand, cand_files = load_stack(args.candidate_dir)
@@ -37,7 +39,7 @@ def main():
     r = ref.reshape(-1).astype(np.float64)
 
     # least-squares scale: minimize ||s*c - r||^2 -> s = (c . r) / (c . c)
-    scale = float((c * r).sum() / (c * c).sum())
+    scale = 1.0 if args.no_align else float((c * r).sum() / (c * c).sum())
     scaled = c * scale
 
     rmse = float(np.sqrt(np.mean((scaled - r) ** 2)))
@@ -52,7 +54,7 @@ def main():
     print(f"candidate: {args.candidate_dir}")
     print(f"reference: {args.reference_dir}")
     print(f"n_frames={cand.shape[0]} shape={cand.shape[1:]}")
-    print(f"optimal_scale={scale:.6g}")
+    print(f"optimal_scale={scale:.6g}" + ("  (no alignment: absolute units)" if args.no_align else ""))
     print(f"corr={corr:.4f}  rel_rmse={rel_rmse:.4f}  rel_mae={rel_mae:.4f}  a1(<1.25x)={a1:.4f}")
     print(f"candidate raw range: min={c.min():.4g} max={c.max():.4g} mean={c.mean():.4g}")
     print(f"reference raw range: min={r.min():.4g} max={r.max():.4g} mean={r.mean():.4g}")

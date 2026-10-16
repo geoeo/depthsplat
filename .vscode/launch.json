@@ -89,8 +89,56 @@
                 "--dataset", "realm_2_100m_w_tandem",
                 "--offset", "0",
                 "--indices", "[0,1,2]",
-                "--scale", "1.0",   
-                "--output", "${workspaceFolder}/outputs/depthsplat-realm_2_100m_w_tandem"
+                "--output-dir", "${workspaceFolder}/outputs/depthsplat-realm_2_100m_w_tandem"
+            ]
+        },
+        {
+            // Gaussian splatting on the windows built by scripts/realm_gs_scenes.py:
+            // full fp32, +experiment=realm (near/far from custom_images.yaml), writes
+            // manifest.json, summary.md, Gaussians, colour renders and rendered depth.
+            "name": "GS Eval: realm windows",
+            "type": "debugpy",
+            "python": "/opt/conda/envs/depthsplat/bin/python",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/realm_gs_eval.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0"
+            },
+            "args": [
+                "--data-root", "${workspaceFolder}/datasets/custom_images_gs",
+                "--index-path", "${workspaceFolder}/assets/evaluation_index_realm_gs.json",
+                "--output-dir", "${workspaceFolder}/outputs/gs-eval-realm",
+                "--gaussian-scale-max", "0.1",
+                "--consistency"
+            ]
+        },
+        {
+            // Same evaluation on 3-frame windows: context [0, 2], the middle frame held
+            // out as the target. Build the windows first with
+            //   python scripts/realm_gs_scenes.py --dataset realm_2_with_depth --offset 70 \
+            //       --window 3 --stride 3 --num-windows 9 --context-step 2 \
+            //       --data-root datasets/custom_images_gs3 --index-path assets/evaluation_index_realm_gs3.json
+            // (add --keep-existing for a second dataset, e.g. realm_2_100m_w_tandem).
+            "name": "GS Eval: realm triplets",
+            "type": "debugpy",
+            "python": "/opt/conda/envs/depthsplat/bin/python",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/realm_gs_eval.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0"
+            },
+            "args": [
+                "--data-root", "${workspaceFolder}/datasets/custom_images_gs3",
+                "--index-path", "${workspaceFolder}/assets/evaluation_index_realm_gs3.json",
+                "--output-dir", "${workspaceFolder}/outputs/gs-eval-realm-triplets",
+                "--gaussian-scale-max", "0.1",
+                "--consistency"
             ]
         },
         {

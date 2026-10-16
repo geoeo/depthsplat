@@ -83,6 +83,7 @@ test:
   render_chunk_size: null
   stablize_camera: false
   stab_camera_kernel: 50
+  save_rendered_depth: false
 
 seed: 111123
 

@@ -53,3 +53,17 @@ gaussian_regressor_channels: 64
 
 # only depth
 train_depth_only: false
+
+# Test-time scene-scale normalisation (metric in, metric out): multiply the context
+# camera positions and near/far by a factor, run the network, scale depths and
+# Gaussians back. Needed for the GS checkpoints (trained at room scale) on metric
+# aerial scenes; keep false for the depth-only checkpoints (fine-tuned on metric data).
+# scene_scale_mode nearfar (default): sqrt(near*far) of the dataset config maps to
+#   scene_scale_target_depth units, i.e. one factor per dataset, independent of the
+#   keyframe spacing (custom_images.yaml 10/500 -> factor 0.042; 100 m -> 4.2 units).
+# scene_scale_mode baseline: mean consecutive context baseline -> scene_scale_baseline.
+#   Collapses to the far plane on slow segments (small baselines); kept for A/B tests.
+normalize_scene_scale: false
+scene_scale_mode: nearfar
+scene_scale_target_depth: 3.0
+scene_scale_baseline: 1.0

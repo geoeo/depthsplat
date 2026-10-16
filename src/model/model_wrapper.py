@@ -75,6 +75,9 @@ class TestCfg:
     render_chunk_size: int | None
     stablize_camera: bool
     stab_camera_kernel: int
+    # Save the rasterizer's z-depth (metres) at every target view as
+    # images/<scene>/depth_rendered/<idx>.npy (+ .png visualisation).
+    save_rendered_depth: bool = False
 
 
 @dataclass
@@ -405,6 +408,7 @@ class ModelWrapper(LightningModule):
             save_gaussian_ply(gaussians, visualization_dump, batch, save_path)
 
         if not self.train_cfg.forward_depth_only:
+            render_depth_mode = "depth" if self.test_cfg.save_rendered_depth else None
             with self.benchmarker.time("decoder", num_calls=v):
                 camera_poses = batch["target"]["extrinsics"]
 
@@ -447,16 +451,19 @@ class ModelWrapper(LightningModule):
                             render_near[:, start:end],
                             render_far[:, start:end],
                             (h, w),
-                            depth_mode=None,
+                            depth_mode=render_depth_mode,
                         )
 
                         if i == 0:
                             output = curr_output
                         else:
-                            # ignore depth
                             output.color = torch.cat(
                                 (output.color, curr_output.color), dim=1
                             )
+                            if output.depth is not None and curr_output.depth is not None:
+                                output.depth = torch.cat(
+                                    (output.depth, curr_output.depth), dim=1
+                                )
 
                 else:
                     output = self.decoder.forward(
@@ -466,7 +473,7 @@ class ModelWrapper(LightningModule):
                         batch["target"]["near"],
                         batch["target"]["far"],
                         (h, w),
-                        depth_mode=None,
+                        depth_mode=render_depth_mode,
                     )
 
         (scene,) = batch["scene"]
@@ -571,6 +578,17 @@ class ModelWrapper(LightningModule):
                 for index, color in zip(batch["target"]["index"][0], images_prob):
                     save_image(color, path / "images" / scene / f"color/{index:0>6}.png")
 
+        # save rendered depth at the target views (camera z-depth, scene units = metres)
+        if self.test_cfg.save_rendered_depth and output.depth is not None:
+            for index, depth_i in zip(batch["target"]["index"][0], output.depth[0]):
+                depth_i = depth_i.detach().cpu()
+                save_path = path / "images" / scene / "depth_rendered" / f"{index:0>6}.npy"
+                save_path.parent.mkdir(parents=True, exist_ok=True)
+                np.save(save_path, depth_i.numpy())
+                Image.fromarray(
+                    viz_depth_tensor(1.0 / depth_i.clamp(min=1e-6), return_numpy=True)
+                ).save(save_path.with_suffix(".png"))
+
         # save video
         if self.test_cfg.save_video:
             frame_str = "_".join([str(x.item()) for x in batch["context"]["index"][0]])
@@ -621,7 +639,7 @@ class ModelWrapper(LightningModule):
                 metric_scores.clear()
 
             for tag, times in self.benchmarker.execution_times.items():
-                times = times[int(self.time_skip_steps_dict[tag]) :]
+                times = times[int(self.time_skip_steps_dict.get(tag, 0)) :]
                 saved_scores[tag] = [len(times), np.mean(times)]
                 print(
                     f"{tag}: {len(times)} calls, avg. {np.mean(times)} seconds per call"

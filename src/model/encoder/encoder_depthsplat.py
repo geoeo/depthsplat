@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass
 from typing import Literal, Optional, List
 
@@ -67,6 +68,35 @@ class EncoderDepthSplatCfg:
 
     # multi-view matching
     local_mv_match: int
+
+    # Test-time scene-scale normalisation (metric in, metric out). When on, the
+    # context camera positions and near/far are multiplied by a per-example factor,
+    # the network runs at that scale, and depths / Gaussians are scaled back before
+    # they leave forward(). Needed for the GS checkpoints (trained at room scale) on
+    # metric aerial scenes; keep off for the depth-only checkpoints (fine-tuned on
+    # metric data). Modes:
+    #   nearfar  (default): sqrt(near * far) -> scene_scale_target_depth units. Uses
+    #            the scene-wide near/far of the dataset config, so every window of a
+    #            dataset gets the same factor regardless of keyframe spacing.
+    #   baseline: mean distance between consecutive context cameras -> scene_scale_baseline.
+    #            Fragile: slow flight segments (small baselines) push the terrain beyond
+    #            ~8 units, where the GS checkpoints collapse to the far plane.
+    normalize_scene_scale: bool = False
+    scene_scale_mode: str = "nearfar"
+    scene_scale_target_depth: float = 3.0
+    scene_scale_baseline: float = 1.0
+
+
+def scale_context(context: dict, scale: Tensor) -> dict:
+    """Copy of a context dict with camera positions, near and far multiplied by a per-example scale."""
+    extrinsics = context["extrinsics"].clone()
+    extrinsics[..., :3, 3] = extrinsics[..., :3, 3] * scale[:, None, None]
+    return {
+        **context,
+        "extrinsics": extrinsics,
+        "near": context["near"] * scale[:, None],
+        "far": context["far"] * scale[:, None],
+    }
 
 
 class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
@@ -147,6 +177,17 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
     ):
         device = context["image"].device
         b, v, _, h, w = context["image"].shape
+
+        scene_scale = None
+        if self.cfg.normalize_scene_scale:
+            scene_scale = self.compute_scene_scale(context["extrinsics"], context["near"], context["far"])
+            context = scale_context(context, scene_scale)
+            rule = (
+                f"sqrt(near*far) -> {self.cfg.scene_scale_target_depth}"
+                if self.cfg.scene_scale_mode == "nearfar"
+                else f"mean consecutive context baseline -> {self.cfg.scene_scale_baseline}"
+            )
+            print("[scene scale] factor " + ", ".join(f"{s:.5f}" for s in scene_scale.tolist()) + f" ({rule})")
 
         if v > 3:
             with torch.no_grad():
@@ -331,6 +372,18 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
                 input_images=sh_input_images if self.cfg.init_sh_input_img else None,
             )
 
+        if scene_scale is not None:
+            # Back to the caller's (metric) units. The batch may have been repeated
+            # len(depth_preds) times for intermediate-depth supervision.
+            inv = (1.0 / scene_scale).repeat(depths.shape[0] // scene_scale.shape[0])
+            depths = depths * inv.view(-1, 1, 1, 1, 1)
+            gaussians = dataclasses.replace(
+                gaussians,
+                means=gaussians.means * inv.view(-1, 1, 1, 1, 1, 1),
+                covariances=gaussians.covariances * (inv**2).view(-1, 1, 1, 1, 1, 1, 1),
+                scales=gaussians.scales * inv.view(-1, 1, 1, 1, 1, 1),
+            )
+
         # Dump visualizations if needed.
         if visualization_dump is not None:
             visualization_dump["depth"] = rearrange(
@@ -375,6 +428,19 @@ class EncoderDepthSplat(Encoder[EncoderDepthSplatCfg]):
             }
 
         return gaussians
+
+    def compute_scene_scale(self, extrinsics: Tensor, near: Tensor, far: Tensor) -> Tensor:
+        """Per-example normalisation factor; see the cfg comment for the two modes."""
+        if self.cfg.scene_scale_mode == "nearfar":
+            geometric_mean = (near[:, 0] * far[:, 0]).clamp(min=1e-12).sqrt()  # [B]; same for every view
+            return self.cfg.scene_scale_target_depth / geometric_mean
+        if self.cfg.scene_scale_mode != "baseline":
+            raise ValueError(f"unknown scene_scale_mode {self.cfg.scene_scale_mode!r}")
+        positions = extrinsics[:, :, :3, 3]  # [B, V, 3]
+        if positions.shape[1] < 2:
+            return torch.ones(positions.shape[0], device=positions.device, dtype=positions.dtype)
+        baseline = (positions[:, 1:] - positions[:, :-1]).norm(dim=-1).mean(dim=1)  # [B]
+        return self.cfg.scene_scale_baseline / baseline.clamp(min=1e-6)
 
     def get_data_shim(self) -> DataShim:
         def data_shim(batch: BatchedExample) -> BatchedExample:
