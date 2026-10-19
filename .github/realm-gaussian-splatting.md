@@ -55,7 +55,7 @@ reconstructions.
 | Container | `.devcontainer/` compose service `ws_depthsplat`, repo at `/workspaces`, user `ubuntu` |
 | Python | `/opt/conda/envs/depthsplat/bin/python` (auto-activated in login bash) |
 | GPU | NVIDIA GeForce RTX 3060, 12 GB |
-| torch / CUDA | 2.6.0+cu126 (Dockerfile pins cu126 wheels for cxx11 ABI), xformers 0.0.29.post3 |
+| torch / CUDA | 2.14.1+cu132 on Ubuntu 24.04 / CUDA 13.2 (Dockerfile pins cu132 wheels), xformers 0.0.35 (cu130 build). Changed 2026-10-19 from 2.6.0+cu126; not yet re-verified on this machine, see `.github/agents/migration.md` |
 | Rasterizer | `diff_gaussian_rasterization` imports fine (installed by `post-create-command.sh`) |
 | Metrics deps | `lpips` OK, `scikit-image` OK, `tifffile` OK; `rasterio` and `open3d` **absent** |
 | torch hub cache | `~/.cache/torch` does not exist. First model construction downloads DINOv2 via `torch.hub.load` (`src/model/encoder/unimatch/mv_unimatch.py:89`). GitHub is reachable. |

@@ -52,7 +52,7 @@ def warp_with_pose_depth_candidates(
         )  # [B, 3, H, W]
         # back project to 3D and transform viewpoint
         # export_compat.inverse, not torch.inverse: aten.linalg_inv_ex breaks
-        # under AOTInductor on torch 2.6. See src/export_compat.py.
+        # under AOTInductor (torch 2.6 through 2.14). See src/export_compat.py.
         points = inverse(intrinsics).bmm(grid.view(b, 3, -1))  # [B, 3, H*W]
         points = torch.bmm(pose[:, :3, :3], points).unsqueeze(2).repeat(
             1, 1, d, 1

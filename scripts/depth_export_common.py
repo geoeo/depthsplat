@@ -9,9 +9,9 @@ produce a working artifact:
     lowering. The fallback is `scaled_dot_product_attention`, which exports fine.
   * the jaxtyping/beartype import hook rewrites every `forward`, so the tracer
     would capture the beartype wrapper instead of the real function.
-  * `aten.linalg_inv_ex` has no c-shim in torch 2.6, so AOTInductor routes
-    `torch.inverse` through the proxy executor, which mis-deserializes one of its
-    arguments and hands back an undefined tensor. That one fails at *inference*
+  * `aten.linalg_inv_ex` has no c-shim (torch 2.6 through 2.14), so AOTInductor
+    routes `torch.inverse` through the proxy executor, which mis-deserializes one
+    of its arguments and hands back an undefined tensor. That one fails at *inference*
     rather than at compile time; see `src/export_compat.py`.
 
 So `import depth_export_common` must come before any `src` import.

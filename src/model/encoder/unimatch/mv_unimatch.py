@@ -417,7 +417,8 @@ class MultiViewUniMatch(nn.Module):
             # relative pose
             # extrinsics: c2w
             # export_compat.inverse, not Tensor.inverse: aten.linalg_inv_ex
-            # breaks under AOTInductor on torch 2.6. See src/export_compat.py.
+            # breaks under AOTInductor (torch 2.6 through 2.14). See
+            # src/export_compat.py.
             pose_curr = torch.matmul(
                 inverse(tgt_extrinsics), ref_extrinsics.unsqueeze(1)
             )  # [BV, V-1, 4, 4]

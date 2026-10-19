@@ -48,6 +48,8 @@ assert inside an unrelated bmm). Two things make this expensive to diagnose:
 
 Recheck this on the next torch upgrade. If the c-shim lands, the substitution
 can be dropped and the two call sites can go back to `torch.inverse`.
+Rechecked for 2.14.1 (2026-10-19): still absent -- `fallback_ops.py` grew from
+145 to 181 entries, none of them `linalg_inv*` -- so the substitution stays.
 
 The replacements are closed-form cofactor inverses, not approximations. They are
 exact for any invertible input, so agreement with `torch.inverse` is a matter of
