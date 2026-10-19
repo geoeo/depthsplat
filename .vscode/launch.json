@@ -156,10 +156,10 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset", "realm_2_with_depth",
-                "--offset", "90",
+                "--dataset", "realm_2_100m_w_tandem",
+                "--offset", "0",
                 "--count", "3",
-                "--output", "${workspaceFolder}/outputs/dataset_cfg_eager_s.pt2"
+                "--output", "${workspaceFolder}/outputs/dataset_cfg_with_reference_100m_s.pt2"
             ]
         },
         {
@@ -202,7 +202,7 @@
                 "CUDA_VISIBLE_DEVICES": "0"
             },
             "args": [
-                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_reference_m.pt2",
+                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_reference_100m_s.pt2",
                 "--fp32", "on",
                 "--clean"
             ]
@@ -245,7 +245,7 @@
             },
             "args": [
                 "--package", "${workspaceFolder}/outputs/aoti/fp32/depth_predictor_fp32.pt2",
-                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg.pt2",
+                "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_reference_100m_s.pt2",
                 "--benchmark", "--iters", "8",
                 "--compare-eager",
                 "--save-cam-images",
