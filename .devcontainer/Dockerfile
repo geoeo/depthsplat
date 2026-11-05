@@ -30,7 +30,7 @@ RUN curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_6
 	&& conda install -y -n base pip \
 	&& conda clean -afy
 
-RUN conda create -y -n depthsplat python=3.10 \
+RUN conda create -y -n depthsplat python=3.12 \
 	&& conda clean -afy
 
 # torch/torchvision come from the cu132 index, never PyPI. PyPI's torch==2.14.1

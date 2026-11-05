@@ -43,11 +43,14 @@ Right: Unsupervised depth pre-training with Gaussian splatting leads to reduced 
 
 Our code is developed using PyTorch 2.4.0, CUDA 12.4, and Python 3.10. 
 
+The dev container uses Python 3.12 with its own CUDA-enabled PyTorch stack.
+The requirements use NumPy 1.26.4 for Python 3.12 compatibility.
+
 We recommend setting up a virtual environment using either [conda](https://docs.anaconda.com/miniconda/) or [venv](https://docs.python.org/3/library/venv.html) before installation:
 
 ```bash
 # conda
-conda create -y -n depthsplat python=3.10
+conda create -y -n depthsplat python=3.12
 conda activate depthsplat
 
 # or venv
@@ -58,6 +61,16 @@ conda activate depthsplat
 pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu124
 pip install -r requirements.txt
 ```
+
+The DINOv2 backbone uses the explicit `facebookresearch/dinov2:main` ref so
+PyTorch Hub can reuse its cache without a GitHub default-branch lookup, which
+can fail with HTTP 504 even when the backbone is cached. The first run still
+needs network access to download the backbone code and pretrained weights.
+
+The VS Code model-export and AOT-compile configurations set
+`PYDEVD_USE_SYS_MONITORING=0`. This keeps breakpoints and stepping available via
+legacy debugpy tracing, avoiding fake/meta tensor constants produced during
+`torch.export` with the Python 3.12+ `sys.monitoring` backend.
 
 ## Model Zoo
 
@@ -436,5 +449,3 @@ We fine-tune our Gaussian Splatting pre-trained depth model using ground-truth d
 ## Acknowledgements
 
 This project is developed with several fantastic repos: [pixelSplat](https://github.com/dcharatan/pixelsplat), [MVSplat](https://github.com/donydchen/mvsplat), [MVSplat360](https://github.com/donydchen/mvsplat360), [UniMatch](https://github.com/autonomousvision/unimatch), [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2) and [DL3DV](https://github.com/DL3DV-10K/Dataset). We thank the original authors for their excellent work.
-
-

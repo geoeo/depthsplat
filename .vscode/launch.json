@@ -174,7 +174,8 @@
             "justMyCode": false,
             "cwd": "${workspaceFolder}",
             "env": {
-                "CUDA_VISIBLE_DEVICES": "0"
+                "CUDA_VISIBLE_DEVICES": "0",
+                "PYDEVD_USE_SYS_MONITORING": "0"
             },
             "args": [
                 "--dataset", "realm_2_with_depth",
@@ -190,6 +191,7 @@
             // Takes ~2.5 minutes. fp32 matches the Python pipeline to ~1e-03 m.
             // Writes outputs/aoti/fp32/ plus a build_info.json recording the
             // precision and the torch version the package is locked to.
+            // Legacy debugpy tracing avoids fake/meta export constants on Python 3.12+.
             "name": "AOT Compile Depth: fp32 (default)",
             "type": "debugpy",
             "python": "/opt/conda/envs/depthsplat/bin/python",
@@ -199,7 +201,8 @@
             "justMyCode": false,
             "cwd": "${workspaceFolder}",
             "env": {
-                "CUDA_VISIBLE_DEVICES": "0"
+                "CUDA_VISIBLE_DEVICES": "0",
+                "PYDEVD_USE_SYS_MONITORING": "0"
             },
             "args": [
                 "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_reference_100m_s.pt2",
@@ -219,7 +222,8 @@
             "justMyCode": false,
             "cwd": "${workspaceFolder}",
             "env": {
-                "CUDA_VISIBLE_DEVICES": "0"
+                "CUDA_VISIBLE_DEVICES": "0",
+                "PYDEVD_USE_SYS_MONITORING": "0"
             },
             "args": [
                 "--dataset-pt2", "${workspaceFolder}/outputs/dataset_cfg_with_reference_m.pt2",
