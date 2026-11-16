@@ -1,1 +1,1 @@
-4(adm),24(cdrom),27(sudo),30(dip),46(plugdev),122(lpadmin),134(lxd),135(sambashare),999(docker)
+4(adm),20(dialout),24(cdrom),27(sudo),30(dip),46(plugdev),122(lpadmin),135(lxd),136(sambashare),143(wireshark),999(docker),1001(flirimaging),1002(geoserver)

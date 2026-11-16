@@ -19,16 +19,16 @@ conda run -n depthsplat env NVCC_PREPEND_FLAGS="--pre-include cstdint" \
 	pip install --no-build-isolation git+https://github.com/dcharatan/diff-gaussian-rasterization-modified
 
 # Guard the torch build. torch/torchvision are installed in the Dockerfile from
-# the cu132 index. Several requirements above declare a torch dependency, so a
+# the cu134 index. Several requirements above declare a torch dependency, so a
 # future pin could quietly pull PyPI's torch over it -- the same version string
-# but built for CUDA 13.0 -- and every AOTInductor package and C++ consumer is
+# but built for CUDA 13.2 -- and every AOTInductor package and C++ consumer is
 # locked to the build that produced it. Fail the build here rather than later.
 # (compiled_with_cxx11_abi() is no longer checked: since torch 2.7 every wheel is
 # cxx11 and the function just returns True.)
 conda run -n depthsplat python -c "\
 import torch, sys; \
 print(f'torch {torch.__version__} cuda={torch.version.cuda}'); \
-sys.exit(0 if torch.version.cuda == '13.2' and torch.__version__.endswith('+cu132') else 1)"
+sys.exit(0 if torch.version.cuda == '13.4' and torch.__version__.endswith('+cu134') else 1)"
 
 # Make conda activation available in future bash shells and avoid duplicate lines.
 conda --no-plugins init bash

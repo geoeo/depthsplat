@@ -1,4 +1,4 @@
-FROM nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04
+FROM nvidia/cuda:13.4.3-cudnn-devel-ubuntu24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -33,19 +33,21 @@ RUN curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_6
 RUN conda create -y -n depthsplat python=3.12 \
 	&& conda clean -afy
 
-# torch/torchvision come from the cu132 index, never PyPI. PyPI's torch==2.14.1
-# is the CUDA 13.0 build under the same version string, so --index-url, not
+# torch/torchvision come from the cu134 index, never PyPI. PyPI's torch==2.15.0
+# is the CUDA 13.2 build under the same version string, so --index-url, not
 # --extra-index-url, or pip would be free to pick it. (Every torch >= 2.7 wheel
 # is cxx11 ABI, so the ABI concern in .github/agents/pytorch-cxx11-abi.md is
 # moot; the CUDA build is what has to be pinned now.)
+# The cu134 index has exactly one pair: torch 2.15.0 and torchvision 0.29.2.
 #
-# xformers has no cu132 build. 0.0.35 is taken from the cu130 index, with
-# --no-deps so its torch>=2.10 requirement cannot pull in a different torch. It
-# runs on cu132 torch; see .github/agents/migration.md.
+# xformers has no cu132 or cu134 build. 0.0.35 is taken from the cu130 index,
+# with --no-deps so its torch>=2.10 requirement cannot pull in a different
+# torch. It was verified on torch 2.14.1+cu132; not yet re-tested on
+# 2.15.0+cu134. See .github/agents/migration.md.
 RUN conda run -n depthsplat pip install --no-cache-dir --upgrade pip \
 	&& conda run -n depthsplat pip install --no-cache-dir \
-		torch==2.14.1 torchvision==0.29.1 \
-		--index-url https://download.pytorch.org/whl/cu132 \
+		torch==2.15.0 torchvision==0.29.2 \
+		--index-url https://download.pytorch.org/whl/cu134 \
 	&& conda run -n depthsplat pip install --no-cache-dir --no-deps \
 		xformers==0.0.35 \
 		--index-url https://download.pytorch.org/whl/cu130
