@@ -28,6 +28,9 @@
 	},
 	"initializeCommand": "xhost +local:docker && .devcontainer/initialize.bash",
 	"postCreateCommand": ".devcontainer/post-create-command.sh",
+	// Hold terminals back until post-create has finished: it runs `conda init`,
+	// and a shell opened earlier never sees it (conda activate then fails).
+	"waitFor": "postCreateCommand",
 	"mounts": [
 		"source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind"
 	],
