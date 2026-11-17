@@ -72,6 +72,25 @@ The VS Code model-export and AOT-compile configurations set
 legacy debugpy tracing, avoiding fake/meta tensor constants produced during
 `torch.export` with the Python 3.12+ `sys.monitoring` backend.
 
+### AOT export chain
+
+Run the non-debug equivalents of **Export Dataset (.pt2)**,
+**AOT Compile Depth: fp32 (default)**, and **Run Depth Package: fp32 (default)**
+in sequence:
+
+```bash
+bash scripts/run_aot_export_chain.sh
+```
+
+The [script](scripts/run_aot_export_chain.sh) uses GPU 0 and
+`/opt/conda/envs/depthsplat/bin/python`; set `PYTHON` to use another interpreter.
+It exports frames 0-2 of `realm_2_100m_w_tandem` to
+`outputs/dataset_cfg_with_reference_100m_s.pt2`, rebuilds `outputs/aoti/fp32/`
+with `--clean`, then benchmarks and compares the package against eager inference,
+saving depths and camera images under `outputs/so_depths/`.
+Existing snapshot, build, and inference outputs at those locations are replaced.
+The script works from any working directory and stops if any step fails.
+
 ## Model Zoo
 
 Our pre-trained models are hosted on [Hugging Face 🤗](https://huggingface.co/haofeixu/depthsplat).
